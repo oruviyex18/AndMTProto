@@ -18,13 +18,13 @@ listens on `127.0.0.1:1443`, and the Telegram app connects to it as an MTProto p
 
 ## Build
 
-Requirements: JDK 17+, Android SDK (platform 36), and **Python 3.13** on `PATH`
+Requirements: JDK 17+, Android SDK (platform 37), and **Python 3.13** on `PATH`
 (`py -3.13` on Windows). Chaquopy requires the build Python's major.minor to match
-the app's Python version.
+the app's Python version. If 3.13 isn't on `PATH`, pass its path explicitly:
 
 ```bash
 cd android
-./gradlew assembleDebug
+./gradlew assembleDebug -Pandmtproto.buildPython=/path/to/python3.13
 ```
 
 The APK is written to `app/build/outputs/apk/debug/`. CI (`.github/workflows/android.yml`)

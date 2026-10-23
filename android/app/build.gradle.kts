@@ -17,7 +17,7 @@ val androidRevision = 1
 
 val upstreamPythonDir = layout.buildDirectory.dir("generated/upstream-python")
 
-val syncUpstreamProxy by tasks.registering(Sync::class) {
+val syncUpstreamProxy = tasks.register<Sync>("syncUpstreamProxy") {
     from(upstreamRoot.resolve("proxy")) {
         include("**/*.py")
     }
@@ -26,7 +26,8 @@ val syncUpstreamProxy by tasks.registering(Sync::class) {
 
 android {
     namespace = "io.github.oruviyex18.andmtproto"
-    compileSdk = 36
+    // Compose BOM 2026.09 libraries require compiling against API 37.
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "io.github.oruviyex18.andmtproto"
@@ -64,6 +65,8 @@ chaquopy {
     defaultConfig {
         // Highest version with Android wheels for cryptography (42.0.8) and cffi.
         version = "3.13"
+        // Optional: -Pandmtproto.buildPython=/path/to/python3.13 when it isn't on PATH.
+        providers.gradleProperty("andmtproto.buildPython").orNull?.let { buildPython(it) }
         pip {
             install("cryptography==42.0.8")
             install("httpx[http2]==0.28.1")
