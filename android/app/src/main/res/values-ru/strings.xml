@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="channel_name">Состояние прокси</string>
+    <string name="notif_starting">Запуск прокси…</string>
+    <string name="notif_running">Работает на %1$s:%2$d · активных: %3$d</string>
+    <string name="action_stop">Остановить</string>
+    <string name="action_open_telegram">Открыть в Telegram</string>
+
+    <string name="status_running">Прокси работает</string>
+    <string name="status_stopped">Прокси остановлен</string>
+    <string name="status_stats">Соединения: активных %1$d, всего %2$d · ↑ %3$s ↓ %4$s</string>
+    <string name="core_version">Ядро прокси %1$s · приложение %2$s</string>
+    <string name="start">Запустить</string>
+    <string name="stop">Остановить</string>
+    <string name="copy_link">Копировать ссылку</string>
+    <string name="link_copied">Ссылка скопирована</string>
+    <string name="telegram_not_found">Telegram не установлен. Скопируйте ссылку.</string>
+    <string name="battery_hint">Оптимизация батареи может остановить прокси в фоне.</string>
+    <string name="battery_button">Разрешить работу в фоне</string>
+
+    <string name="settings">Настройки</string>
+    <string name="host">Адрес прослушивания</string>
+    <string name="port">Порт</string>
+    <string name="secret">Секрет (32 hex-символа)</string>
+    <string name="new_secret">Новый</string>
+    <string name="dc_ip">DC → IP, по одному в строке (например 4:149.154.167.220)</string>
+    <string name="dc_ip_hint">Если не грузятся фото или видео, оставьте только 4:149.154.167.220 или очистите поле.</string>
+    <string name="pool_size">Размер пула WebSocket</string>
+    <string name="buf_kb">Буфер, КБ</string>
+    <string name="cfproxy">Резерв через CF proxy</string>
+    <string name="h2">CF HTTP/2 для медиа</string>
+    <string name="cf_user_enabled">Свои домены CF proxy</string>
+    <string name="cf_user_domains">Домены CF proxy</string>
+    <string name="cf_worker_enabled">Использовать CF Worker</string>
+    <string name="cf_worker_domains">Домены CF Worker</string>
+    <string name="fake_tls">Домен Fake TLS (необязательно)</string>
+    <string name="force_test_dc">Принудительно тестовые DC</string>
+    <string name="no_secure">Без TLS для CF proxy/worker (порт 80)</string>
+    <string name="verbose">Подробный лог</string>
+    <string name="save">Сохранить</string>
+    <string name="save_restart">Сохранить и перезапустить</string>
+    <string name="saved">Сохранено</string>
+    <string name="invalid_number">%1$s: нужно число</string>
+
+    <string name="logs">Лог</string>
+    <string name="refresh">Обновить</string>
+    <string name="logs_empty">Лог пока пуст.</string>
+</resources>

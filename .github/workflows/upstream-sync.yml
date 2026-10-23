@@ -1,0 +1,108 @@
+name: Upstream sync
+
+# Merges Flowseal/tg-ws-proxy main into a branch, tests and builds it, and opens a PR.
+# Requires: Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests".
+
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    outputs:
+      branch: ${{ steps.merge.outputs.branch }}
+      upstream_version: ${{ steps.merge.outputs.upstream_version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Merge upstream/main
+        id: merge
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/Flowseal/tg-ws-proxy.git
+          git fetch upstream main
+
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "Already up to date with upstream."
+            exit 0
+          fi
+
+          short=$(git rev-parse --short upstream/main)
+          branch="upstream-sync/$short"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            echo "Branch $branch already exists; a sync PR is probably open."
+            exit 0
+          fi
+
+          # Files the Android adapter mirrors; changes here need a manual look.
+          git diff --stat HEAD...upstream/main -- \
+            proxy/config.py proxy/tg_ws_proxy.py proxy/__init__.py \
+            utils/tray_common.py utils/default_config.py pyproject.toml \
+            > coupling.txt
+          git checkout -b "$branch"
+          if ! git merge --no-edit upstream/main; then
+            echo "::error::Merge conflict with upstream; merge manually."
+            exit 1
+          fi
+          git push origin "$branch"
+
+          version=$(sed -nE 's/^__version__ = "([^"]+)"/\1/p' proxy/__init__.py)
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "upstream_version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v7
+        if: steps.merge.outputs.branch != ''
+        with:
+          name: coupling
+          path: coupling.txt
+
+  build:
+    needs: merge
+    if: needs.merge.outputs.branch != ''
+    uses: ./.github/workflows/android.yml
+    with:
+      ref: ${{ needs.merge.outputs.branch }}
+
+  pr:
+    needs: [merge, build]
+    if: always() && needs.merge.outputs.branch != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: coupling
+      - name: Open PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ needs.merge.outputs.branch }}
+          VERSION: ${{ needs.merge.outputs.upstream_version }}
+          BUILD: ${{ needs.build.result }}
+        run: |
+          {
+            echo "Merges the latest Flowseal/tg-ws-proxy main (core $VERSION)."
+            echo
+            echo "Tests and APK build: **$BUILD** (see the Upstream sync run)."
+            echo
+            echo "### Files the Android adapter mirrors"
+            if [ -s coupling.txt ]; then
+              echo "These changed upstream. Check android_entry.py, ProxySettings.kt and the settings screen:"
+              echo '```'; cat coupling.txt; echo '```'
+            else
+              echo "None changed."
+            fi
+            echo
+            echo "Before merging: smoke-test the APK in Telegram, then bump versionCode / androidRevision."
+          } > body.md
+          gh pr create --base main --head "$BRANCH" \
+            --title "Sync upstream tg-ws-proxy $VERSION" --body-file body.md
