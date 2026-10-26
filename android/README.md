@@ -31,6 +31,21 @@ The APK is written to `app/build/outputs/apk/debug/`. CI (`.github/workflows/and
 runs the upstream core tests and the adapter tests, then builds debug and release APKs.
 Pushing a tag `android-vX.Y.Z` publishes a GitHub release.
 
+### Release signing
+
+Release APKs are signed with the AndMTProto release key. Without it they fall back to the
+debug key, which is fine for local testing but must never be published: Android refuses
+updates signed with a different key.
+
+- **CI:** the repository secrets `ANDROID_KEYSTORE_BASE64` (base64 of the PKCS12 keystore),
+  `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`. The
+  workflow prints the signer and fails on an `android-v*` tag if the APK is debug-signed.
+- **Locally:** `./gradlew assembleRelease -Pandmtproto.signing=/path/to/keystore.properties`,
+  where the file has `storeFile`, `storePassword`, `keyAlias` and `keyPassword`.
+
+Keep the keystore and its passwords out of the repository, with a backup. If the key is
+lost, existing installs can't be updated.
+
 Run the adapter tests locally:
 
 ```bash

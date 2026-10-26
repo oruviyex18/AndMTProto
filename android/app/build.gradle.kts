@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
@@ -14,6 +16,25 @@ val upstreamVersion: String = Regex("""__version__\s*=\s*"([^"]+)"""")
 
 // Bump for every Android release; reset the suffix when upstream bumps its version.
 val androidRevision = 1
+
+// Release signing, from -Pandmtproto.signing=<keystore.properties> (local builds)
+// or ANDROID_KEYSTORE_FILE / _PASSWORD / ANDROID_KEY_ALIAS / _PASSWORD (CI).
+// Without either, release builds fall back to the debug key.
+val releaseSigning: Map<String, String>? =
+    providers.gradleProperty("andmtproto.signing").orNull?.let { path ->
+        val props = Properties()
+        file(path).inputStream().use { props.load(it) }
+        props.stringPropertyNames().associateWith { props.getProperty(it).trim() }
+    } ?: providers.environmentVariable("ANDROID_KEYSTORE_FILE").orNull?.let { storeFile ->
+        fun env(name: String) = providers.environmentVariable(name).orNull
+            ?: error("$name must be set together with ANDROID_KEYSTORE_FILE")
+        mapOf(
+            "storeFile" to storeFile,
+            "storePassword" to env("ANDROID_KEYSTORE_PASSWORD"),
+            "keyAlias" to env("ANDROID_KEY_ALIAS"),
+            "keyPassword" to env("ANDROID_KEY_PASSWORD"),
+        )
+    }
 
 val upstreamPythonDir = layout.buildDirectory.dir("generated/upstream-python")
 
@@ -42,11 +63,21 @@ android {
         }
     }
 
+    signingConfigs {
+        if (releaseSigning != null) {
+            create("release") {
+                storeFile = file(releaseSigning.getValue("storeFile"))
+                storePassword = releaseSigning.getValue("storePassword")
+                keyAlias = releaseSigning.getValue("keyAlias")
+                keyPassword = releaseSigning.getValue("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Debug signing until a release keystore is configured.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 

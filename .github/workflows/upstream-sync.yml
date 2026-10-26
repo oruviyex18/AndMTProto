@@ -70,6 +70,7 @@ jobs:
     needs: merge
     if: needs.merge.outputs.branch != ''
     uses: ./.github/workflows/android.yml
+    secrets: inherit
     with:
       ref: ${{ needs.merge.outputs.branch }}
 
