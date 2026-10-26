@@ -69,8 +69,10 @@ When reviewing a sync PR:
 3. **New import or version pin in `pyproject.toml` that `proxy/` uses:** add it to
    `chaquopy { pip { } }` in `app/build.gradle.kts` and to `android.yml`. A native
    package needs an Android wheel from Chaquopy's index.
-4. **Only desktop files changed** (`windows.py`, `ui/`, `utils/`, packaging): nothing to do.
-5. Install the APK, connect Telegram, and check that chats and media load. Then bump
+4. **`icon.ico` changed:** regenerate the launcher and notification icons with
+   `pip install Pillow && python android/tools/make_icons.py`, then commit `android/app/src/main/res`.
+5. **Only desktop files changed** (`windows.py`, `ui/`, `utils/`, packaging): nothing to do.
+6. Install the APK, connect Telegram, and check that chats and media load. Then bump
    `versionCode` and `androidRevision` in `app/build.gradle.kts` and merge.
    `versionName` follows upstream's `__version__` automatically.
 

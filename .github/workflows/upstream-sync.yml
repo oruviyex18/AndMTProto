@@ -47,7 +47,7 @@ jobs:
           # Files the Android adapter mirrors; changes here need a manual look.
           git diff --stat HEAD...upstream/main -- \
             proxy/config.py proxy/tg_ws_proxy.py proxy/__init__.py \
-            utils/tray_common.py utils/default_config.py pyproject.toml \
+            utils/tray_common.py utils/default_config.py pyproject.toml icon.ico \
             > coupling.txt
           git checkout -b "$branch"
           if ! git merge --no-edit upstream/main; then
@@ -97,7 +97,7 @@ jobs:
             echo
             echo "### Files the Android adapter mirrors"
             if [ -s coupling.txt ]; then
-              echo "These changed upstream. Check android_entry.py, ProxySettings.kt and the settings screen:"
+              echo "These changed upstream. Check android_entry.py, ProxySettings.kt and the settings screen; if icon.ico changed, run android/tools/make_icons.py:"
               echo '```'; cat coupling.txt; echo '```'
             else
               echo "None changed."
