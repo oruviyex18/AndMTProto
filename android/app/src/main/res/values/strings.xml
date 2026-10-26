@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AndMTProto</string>
+
+    <string name="channel_name">Proxy status</string>
+    <string name="notif_starting">Starting proxy…</string>
+    <string name="notif_running">Running on %1$s:%2$d · %3$d active</string>
+    <string name="action_stop">Stop</string>
+    <string name="action_open_telegram">Open in Telegram</string>
+
+    <string name="status_running">Proxy is running</string>
+    <string name="status_stopped">Proxy is stopped</string>
+    <string name="status_stats">Connections: %1$d active, %2$d total · ↑ %3$s ↓ %4$s</string>
+    <string name="core_version">Proxy core %1$s · app %2$s</string>
+    <string name="start">Start</string>
+    <string name="stop">Stop</string>
+    <string name="copy_link">Copy link</string>
+    <string name="link_copied">Link copied</string>
+    <string name="telegram_not_found">Telegram is not installed. Copy the link instead.</string>
+    <string name="battery_hint">Battery optimisation may stop the proxy in the background.</string>
+    <string name="battery_button">Allow background work</string>
+
+    <string name="settings">Settings</string>
+    <string name="host">Listen address</string>
+    <string name="port">Port</string>
+    <string name="secret">Secret (32 hex characters)</string>
+    <string name="new_secret">New</string>
+    <string name="dc_ip">DC → IP, one per line (e.g. 4:149.154.167.220)</string>
+    <string name="dc_ip_hint">If photos or videos don\'t load, leave only 4:149.154.167.220 or clear the field.</string>
+    <string name="pool_size">WebSocket pool size</string>
+    <string name="buf_kb">Buffer, KB</string>
+    <string name="cfproxy">Fall back to CF proxy</string>
+    <string name="h2">CF HTTP/2 for media</string>
+    <string name="cf_user_enabled">Use my own CF proxy domains</string>
+    <string name="cf_user_domains">CF proxy domains</string>
+    <string name="cf_worker_enabled">Use CF Worker</string>
+    <string name="cf_worker_domains">CF Worker domains</string>
+    <string name="fake_tls">Fake TLS domain (optional)</string>
+    <string name="force_test_dc">Force test DCs</string>
+    <string name="no_secure">No TLS for CF proxy/worker (port 80)</string>
+    <string name="verbose">Verbose logging</string>
+    <string name="save">Save</string>
+    <string name="save_restart">Save and restart</string>
+    <string name="saved">Saved</string>
+    <string name="invalid_number">%1$s must be a number</string>
+
+    <string name="logs">Logs</string>
+    <string name="refresh">Refresh</string>
+    <string name="logs_empty">No log yet.</string>
+</resources>

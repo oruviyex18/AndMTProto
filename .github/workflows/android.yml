@@ -1,0 +1,111 @@
+name: Android
+
+on:
+  push:
+    branches: [main, android-*]
+    tags: ['android-v*']
+    paths: ['android/**', 'proxy/**', '.github/workflows/android.yml']
+  pull_request:
+    paths: ['android/**', 'proxy/**', '.github/workflows/android.yml']
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to test and build
+        type: string
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+
+      # Same pins as chaquopy.pip in android/app/build.gradle.kts.
+      - name: Install core dependencies
+        run: pip install "cryptography==42.0.8" "httpx[http2]==0.28.1" certifi pytest
+
+      - name: Upstream core tests
+        run: |
+          # Skip tests that import the desktop tray/UI stack (psutil, customtkinter, ...).
+          core_tests=$(grep -L -E 'tray_common|from ui|import ui|from utils|import utils|customtkinter|pystray|psutil' tests/test_*.py)
+          echo "$core_tests"
+          python -m pytest -q $core_tests
+
+      - name: Android adapter tests
+        run: python -m pytest -q android/tests
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # Chaquopy needs a build Python with the same major.minor as the app (3.13).
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      # Secrets are absent for PRs from other forks; those builds stay debug-signed.
+      - name: Decode release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.p12"
+            echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/release.p12" >> "$GITHUB_ENV"
+          else
+            echo "No ANDROID_KEYSTORE_BASE64 secret; release APK will be debug-signed."
+          fi
+
+      - name: Build APKs
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon assembleDebug assembleRelease
+
+      - name: Check release signature
+        run: |
+          rm -f "$RUNNER_TEMP/release.p12"
+          apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          signer=$("$apksigner" verify --print-certs android/app/build/outputs/apk/release/app-release.apk \
+            | grep -m1 'certificate DN')
+          echo "$signer"
+          if [[ "$GITHUB_REF" == refs/tags/android-v* && "$signer" == *"Android Debug"* ]]; then
+            echo "::error::Release tags must be signed with the release key, not the debug key."
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: AndMTProto-apk
+          path: android/app/build/outputs/apk/**/*.apk
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/android-v') && inputs.ref == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk "AndMTProto-${GITHUB_REF_NAME}.apk"
+          gh release create "$GITHUB_REF_NAME" "AndMTProto-${GITHUB_REF_NAME}.apk" \
+            --title "AndMTProto ${GITHUB_REF_NAME#android-v}" --generate-notes
