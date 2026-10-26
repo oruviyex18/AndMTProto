@@ -12,10 +12,12 @@ proxy_link() and new_secret(); config and status travel as JSON strings.
 from __future__ import annotations
 
 import asyncio
+import errno
 import json
 import logging
 import logging.handlers
 import os
+import socket
 import sys
 import threading
 from typing import Any, Dict, Optional, Tuple
@@ -51,8 +53,30 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 _lock = threading.Lock()
 _proxy_thread: Optional[threading.Thread] = None
 _async_stop: Optional[Tuple[asyncio.AbstractEventLoop, asyncio.Event]] = None
-_last_error: Optional[str] = None
+# Errors reach Kotlin as {"code", "detail", "suggested_port"} so the UI can
+# show them in its own language. Codes: bad_secret, bad_port, bad_dc_ip,
+# port_in_use, permission, address, unknown.
+_last_error: Optional[Dict[str, Any]] = None
 _log_handler: Optional[logging.Handler] = None
+
+# How far above a busy port to look for a free one.
+_PORT_SEARCH_RANGE = 50
+
+
+class ConfigError(ValueError):
+    def __init__(self, code: str, detail: str = ""):
+        super().__init__(f"{code}: {detail}" if detail else code)
+        self.code = code
+        self.detail = detail
+
+
+def _error(code: str, detail: Any = None,
+           suggested_port: Optional[int] = None) -> Dict[str, Any]:
+    return {
+        "code": code,
+        "detail": None if detail is None else str(detail),
+        "suggested_port": suggested_port,
+    }
 
 
 def _merged(cfg_json: str) -> Dict[str, Any]:
@@ -62,17 +86,30 @@ def _merged(cfg_json: str) -> Dict[str, Any]:
 
 
 def _apply_config(cfg: Dict[str, Any]) -> None:
-    """Port of tray_common.apply_proxy_config; raises ValueError on bad input."""
+    """Port of tray_common.apply_proxy_config; raises ConfigError on bad input."""
     secret = str(cfg["secret"]).strip()
-    if len(secret) != 32:
-        raise ValueError("Secret must be exactly 32 hex characters")
-    bytes.fromhex(secret)
+    try:
+        if len(secret) != 32:
+            raise ValueError
+        bytes.fromhex(secret)
+    except ValueError:
+        raise ConfigError("bad_secret") from None
+    try:
+        port = int(cfg["port"])
+        if not 1 <= port <= 65535:
+            raise ValueError
+    except (TypeError, ValueError):
+        raise ConfigError("bad_port", cfg["port"]) from None
+    try:
+        dc_redirects = parse_dc_ip_list(cfg["dc_ip"])
+    except ValueError as exc:
+        raise ConfigError("bad_dc_ip", getattr(exc, "entry", "")) from None
 
     pc = proxy_config
-    pc.port = int(cfg["port"])
+    pc.port = port
     pc.host = cfg["host"]
     pc.secret = secret
-    pc.dc_redirects = parse_dc_ip_list(cfg["dc_ip"])
+    pc.dc_redirects = dc_redirects
     pc.buffer_size = max(4, int(cfg["buf_kb"])) * 1024
     pc.pool_size = max(0, int(cfg["pool_size"]))
     pc.fallback_cfproxy = bool(cfg["cfproxy"])
@@ -136,16 +173,28 @@ def _run_proxy_thread() -> None:
         _async_stop = None
 
 
-def _describe_error(exc: BaseException) -> str:
-    import errno
+def _describe_error(exc: BaseException) -> Dict[str, Any]:
+    port, host = proxy_config.port, proxy_config.host
     if isinstance(exc, OSError):
         if exc.errno == errno.EADDRINUSE:
-            return f"Port {proxy_config.port} is already in use"
+            return _error("port_in_use", port, _find_free_port(host, port))
         if exc.errno == errno.EACCES:
-            return f"No permission to listen on port {proxy_config.port}"
+            return _error("permission", port)
         if exc.errno == errno.EADDRNOTAVAIL:
-            return f"Address {proxy_config.host} is not available"
-    return repr(exc)
+            return _error("address", host)
+    return _error("unknown", repr(exc))
+
+
+def _find_free_port(host: str, busy: int) -> Optional[int]:
+    """First port above `busy` that can be bound on `host`, or None."""
+    for port in range(busy + 1, min(busy + _PORT_SEARCH_RANGE, 65535) + 1):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind((host, port))
+            except OSError:
+                continue
+            return port
+    return None
 
 
 def _is_running() -> bool:
@@ -153,7 +202,11 @@ def _is_running() -> bool:
 
 
 def start(cfg_json: str, log_dir: str) -> Optional[str]:
-    """Start the proxy in a background thread. Returns an error or None."""
+    """Start the proxy in a background thread.
+
+    Returns None on success, or the error as JSON (see _error) when the
+    config is invalid. Bind errors happen later and show up in status().
+    """
     global _proxy_thread, _last_error
     with _lock:
         if _is_running():
@@ -162,10 +215,10 @@ def start(cfg_json: str, log_dir: str) -> Optional[str]:
         _setup_logging(log_dir, cfg)
         try:
             _apply_config(cfg)
-        except ValueError as exc:
-            _last_error = str(exc)
+        except ConfigError as exc:
+            _last_error = _error(exc.code, exc.detail or None)
             log.error("Bad config: %s", exc)
-            return _last_error
+            return json.dumps(_last_error)
         _last_error = None
         log.info("AndMTProto: core %s, Python %s",
                  __version__, sys.version.split()[0])

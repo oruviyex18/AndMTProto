@@ -17,6 +17,17 @@
     <string name="telegram_not_found">Telegram не установлен. Скопируйте ссылку.</string>
     <string name="battery_hint">Оптимизация батареи может остановить прокси в фоне.</string>
     <string name="battery_button">Разрешить работу в фоне</string>
+    <string name="miui_hint">На Xiaomi (MIUI / HyperOS) также включите для AndMTProto «Автозапуск» и выберите «Нет ограничений» в контроле активности, иначе система может остановить прокси.</string>
+    <string name="miui_button">Открыть настройки автозапуска</string>
+
+    <string name="error_port_in_use">Порт %1$s уже занят другим приложением.</string>
+    <string name="error_permission">Нет прав на прослушивание порта %1$s.</string>
+    <string name="error_address">Адрес %1$s недоступен на этом устройстве.</string>
+    <string name="error_bad_secret">Секрет должен состоять из 32 hex-символов.</string>
+    <string name="error_bad_port">Недопустимый порт %1$s (1–65535).</string>
+    <string name="error_bad_dc_ip">Неверная строка DC → IP: «%1$s». Формат DC:IP, например 4:149.154.167.220.</string>
+    <string name="error_unknown">Ошибка прокси: %1$s</string>
+    <string name="use_port">Использовать порт %1$d</string>
 
     <string name="settings">Настройки</string>
     <string name="host">Адрес прослушивания</string>
@@ -37,6 +48,7 @@
     <string name="force_test_dc">Принудительно тестовые DC</string>
     <string name="no_secure">Без TLS для CF proxy/worker (порт 80)</string>
     <string name="verbose">Подробный лог</string>
+    <string name="start_on_boot">Запускать при включении телефона</string>
     <string name="save">Сохранить</string>
     <string name="save_restart">Сохранить и перезапустить</string>
     <string name="saved">Сохранено</string>

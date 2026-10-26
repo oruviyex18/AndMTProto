@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -57,12 +58,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -72,11 +76,26 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         ProxyService.refresh()
+        if (savedInstanceState == null) handleIntent(intent)
         setContent {
             AppTheme {
                 Surface(Modifier.fillMaxSize()) { MainScreen() }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    /** The Quick Settings tile opens the app with [ACTION_START] when it can't start the service itself. */
+    private fun handleIntent(intent: Intent?) {
+        if (intent?.action == ACTION_START) ProxyService.start(this)
+    }
+
+    companion object {
+        const val ACTION_START = "io.github.oruviyex18.andmtproto.action.START"
     }
 }
 
@@ -100,12 +119,13 @@ private data class Form(
     val cfUserEnabled: Boolean, val cfUserDomains: String,
     val cfWorkerEnabled: Boolean, val cfWorkerDomains: String,
     val fakeTls: String, val forceTestDc: Boolean, val noSecure: Boolean, val verbose: Boolean,
+    val startOnBoot: Boolean,
 ) {
     constructor(s: ProxySettings) : this(
         s.host, s.port.toString(), s.secret, s.dcIp.joinToString("\n"),
         s.poolSize.toString(), s.bufKb.toString(), s.cfproxy, s.h2,
         s.cfUserDomainEnabled, s.cfUserDomains, s.cfWorkerEnabled, s.cfWorkerDomains,
-        s.fakeTlsDomain, s.forceTestDc, s.noSecure, s.verbose,
+        s.fakeTlsDomain, s.forceTestDc, s.noSecure, s.verbose, s.startOnBoot,
     )
 }
 
@@ -116,6 +136,8 @@ private fun MainScreen() {
     var saved by remember { mutableStateOf(store.load()) }
     var form by remember { mutableStateOf(Form(saved)) }
     val status by ProxyService.status.collectAsStateWithLifecycle()
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
 
     val notifPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -140,7 +162,18 @@ private fun MainScreen() {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        StatusCard(status, onStart = ::startProxy, onStop = { ProxyService.stop(context) })
+        StatusCard(
+            status,
+            onStart = ::startProxy,
+            onStop = { ProxyService.stop(context) },
+            onUsePort = { port ->
+                val updated = saved.copy(port = port)
+                store.save(updated)
+                saved = updated
+                form = form.copy(port = port.toString())
+                startProxy()
+            },
+        )
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { openInTelegram(context, ProxyCore.link(saved)) }) {
@@ -161,6 +194,8 @@ private fun MainScreen() {
         Button(
             onClick = save@{
                 val parsed = parseForm(context, form) ?: return@save
+                focusManager.clearFocus()
+                keyboard?.hide()
                 store.save(parsed)
                 saved = parsed
                 if (status.running) ProxyService.start(context, restart = true)
@@ -175,7 +210,12 @@ private fun MainScreen() {
 }
 
 @Composable
-private fun StatusCard(status: ProxyStatus, onStart: () -> Unit, onStop: () -> Unit) {
+private fun StatusCard(
+    status: ProxyStatus,
+    onStart: () -> Unit,
+    onStop: () -> Unit,
+    onUsePort: (Int) -> Unit,
+) {
     val context = LocalContext.current
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -192,7 +232,15 @@ private fun StatusCard(status: ProxyStatus, onStart: () -> Unit, onStop: () -> U
                     )
                 )
             }
-            status.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            status.error?.let { error ->
+                Text(errorText(context, error), color = MaterialTheme.colorScheme.error)
+                val port = error.suggestedPort
+                if (port != null && !status.running) {
+                    TextButton(onClick = { onUsePort(port) }) {
+                        Text(stringResource(R.string.use_port, port))
+                    }
+                }
+            }
             if (status.coreVersion.isNotEmpty()) {
                 Text(
                     stringResource(R.string.core_version, status.coreVersion, BuildConfig.VERSION_NAME),
@@ -212,15 +260,64 @@ private fun StatusCard(status: ProxyStatus, onStart: () -> Unit, onStop: () -> U
 @Composable
 private fun BatteryHint() {
     val context = LocalContext.current
-    val pm = context.getSystemService(PowerManager::class.java)
-    if (pm.isIgnoringBatteryOptimizations(context.packageName)) return
-    Text(stringResource(R.string.battery_hint), style = MaterialTheme.typography.bodySmall)
-    TextButton(onClick = {
+    val pm = remember { context.getSystemService(PowerManager::class.java) }
+    var ignoring by remember { mutableStateOf(pm.isIgnoringBatteryOptimizations(context.packageName)) }
+    // Re-check when the user comes back from the system settings screen.
+    LifecycleResumeEffect(Unit) {
+        ignoring = pm.isIgnoringBatteryOptimizations(context.packageName)
+        onPauseOrDispose { }
+    }
+    if (!ignoring) {
+        Text(stringResource(R.string.battery_hint), style = MaterialTheme.typography.bodySmall)
+        TextButton(onClick = {
+            context.startActivity(
+                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                    .setData(Uri.parse("package:${context.packageName}"))
+            )
+        }) { Text(stringResource(R.string.battery_button)) }
+    }
+    // MIUI / HyperOS stop background apps on top of Android's battery optimisation,
+    // and their settings can't be read, so the hint stays visible on Xiaomi devices.
+    if (isXiaomi()) {
+        Text(stringResource(R.string.miui_hint), style = MaterialTheme.typography.bodySmall)
+        TextButton(onClick = { openMiuiAutostart(context) }) {
+            Text(stringResource(R.string.miui_button))
+        }
+    }
+}
+
+private fun isXiaomi(): Boolean =
+    listOf(Build.MANUFACTURER, Build.BRAND).any {
+        it.equals("Xiaomi", true) || it.equals("Redmi", true) || it.equals("POCO", true)
+    }
+
+/** MIUI's Autostart screen, or the app's system settings page where it doesn't exist. */
+private fun openMiuiAutostart(context: Context) {
+    val autostart = Intent().setComponent(
+        ComponentName(
+            "com.miui.securitycenter",
+            "com.miui.permcenter.autostart.AutoStartManagementActivity",
+        )
+    )
+    try {
+        context.startActivity(autostart)
+    } catch (_: Exception) {
         context.startActivity(
-            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
                 .setData(Uri.parse("package:${context.packageName}"))
         )
-    }) { Text(stringResource(R.string.battery_button)) }
+    }
+}
+
+/** User-facing text for an error from the Python core. */
+private fun errorText(context: Context, e: ProxyError): String = when (e.code) {
+    "port_in_use" -> context.getString(R.string.error_port_in_use, e.detail.orEmpty())
+    "permission" -> context.getString(R.string.error_permission, e.detail.orEmpty())
+    "address" -> context.getString(R.string.error_address, e.detail.orEmpty())
+    "bad_secret" -> context.getString(R.string.error_bad_secret)
+    "bad_port" -> context.getString(R.string.error_bad_port, e.detail.orEmpty())
+    "bad_dc_ip" -> context.getString(R.string.error_bad_dc_ip, e.detail.orEmpty())
+    else -> context.getString(R.string.error_unknown, e.detail ?: e.code)
 }
 
 @Composable
@@ -261,6 +358,7 @@ private fun SettingsForm(f: Form, onChange: (Form) -> Unit) {
     Toggle(f.noSecure, R.string.no_secure) { onChange(f.copy(noSecure = it)) }
     Toggle(f.forceTestDc, R.string.force_test_dc) { onChange(f.copy(forceTestDc = it)) }
     Toggle(f.verbose, R.string.verbose) { onChange(f.copy(verbose = it)) }
+    Toggle(f.startOnBoot, R.string.start_on_boot) { onChange(f.copy(startOnBoot = it)) }
 }
 
 @Composable
@@ -323,7 +421,7 @@ private fun parseForm(context: Context, f: Form): ProxySettings? {
         cfUserDomainEnabled = f.cfUserEnabled, cfUserDomains = f.cfUserDomains,
         cfWorkerEnabled = f.cfWorkerEnabled, cfWorkerDomains = f.cfWorkerDomains,
         fakeTlsDomain = f.fakeTls, forceTestDc = f.forceTestDc,
-        noSecure = f.noSecure, verbose = f.verbose,
+        noSecure = f.noSecure, verbose = f.verbose, startOnBoot = f.startOnBoot,
     )
 }
 

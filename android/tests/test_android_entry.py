@@ -71,7 +71,7 @@ def test_restart_same_port(tmp_path):
         android_entry.stop()
 
 
-def test_port_in_use_reports_error(tmp_path):
+def test_port_in_use_reports_code_and_free_port(tmp_path):
     with socket.socket() as busy:
         busy.bind(('127.0.0.1', 0))
         busy.listen()
@@ -79,18 +79,42 @@ def test_port_in_use_reports_error(tmp_path):
         assert android_entry.start(_cfg(port=port), str(tmp_path)) is None
         assert _wait(lambda: not json.loads(android_entry.status())["running"])
         android_entry.stop()
-    assert "in use" in json.loads(android_entry.status())["error"]
+    err = json.loads(android_entry.status())["error"]
+    assert err["code"] == "port_in_use"
+    assert err["detail"] == str(port)
+    suggested = err["suggested_port"]
+    assert suggested and suggested > port
+    with socket.socket() as s:
+        s.bind(('127.0.0.1', suggested))  # really free
+
+
+def test_success_clears_previous_error(tmp_path):
+    android_entry.start(_cfg(secret="xyz"), str(tmp_path))
+    assert json.loads(android_entry.status())["error"]
+    cfg = _cfg()
+    assert android_entry.start(cfg, str(tmp_path)) is None
+    try:
+        assert json.loads(android_entry.status())["error"] is None
+    finally:
+        android_entry.stop()
 
 
 def test_bad_secret_rejected(tmp_path):
-    err = android_entry.start(_cfg(secret="xyz"), str(tmp_path))
-    assert err and "32 hex" in err
-    assert not json.loads(android_entry.status())["running"]
+    err = json.loads(android_entry.start(_cfg(secret="xyz"), str(tmp_path)))
+    assert err["code"] == "bad_secret"
+    st = json.loads(android_entry.status())
+    assert not st["running"] and st["error"]["code"] == "bad_secret"
+
+
+def test_bad_port_rejected(tmp_path):
+    err = json.loads(android_entry.start(_cfg(port=70000), str(tmp_path)))
+    assert err == {"code": "bad_port", "detail": "70000", "suggested_port": None}
 
 
 def test_bad_dc_ip_rejected(tmp_path):
-    err = android_entry.start(_cfg(dc_ip=["nonsense"]), str(tmp_path))
-    assert err
+    err = json.loads(android_entry.start(_cfg(dc_ip=["nonsense"]), str(tmp_path)))
+    assert err["code"] == "bad_dc_ip"
+    assert err["detail"] == "nonsense"
 
 
 def test_links():
