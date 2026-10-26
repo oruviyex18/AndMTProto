@@ -113,7 +113,7 @@ def main() -> None:
         "<resources>\n"
         f'    <color name="ic_launcher_background">{colour}</color>\n'
         "</resources>\n",
-        encoding="utf-8",
+        encoding="utf-8", newline="\n",
     )
     adaptive = (
         '<?xml version="1.0" encoding="utf-8"?>\n'
@@ -126,7 +126,7 @@ def main() -> None:
     anydpi = RES / "mipmap-anydpi-v26"
     anydpi.mkdir(parents=True, exist_ok=True)
     for name in ("ic_launcher", "ic_launcher_round"):
-        (anydpi / f"{name}.xml").write_text(adaptive, encoding="utf-8")
+        (anydpi / f"{name}.xml").write_text(adaptive, encoding="utf-8", newline="\n")
     print(f"background {colour}; adaptive icons in {anydpi.relative_to(ROOT)}")
 
 
