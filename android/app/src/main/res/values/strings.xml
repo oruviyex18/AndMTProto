@@ -46,6 +46,11 @@
     <string name="cf_user_domains">CF proxy domains</string>
     <string name="cf_worker_enabled">Use CF Worker</string>
     <string name="cf_worker_domains">CF Worker domains</string>
+    <string name="cf_hint">If media or some channels load slowly, the shared CF proxy is probably overloaded. Your own free Cloudflare Worker, or your own CF domain, fixes this.</string>
+    <string name="cf_worker_guide">CF Worker guide</string>
+    <string name="cf_proxy_guide">CF domain guide</string>
+    <string name="cf_worker_guide_url">https://github.com/Flowseal/tg-ws-proxy/blob/main/docs/EN/CfWorker.md</string>
+    <string name="cf_proxy_guide_url">https://github.com/Flowseal/tg-ws-proxy/blob/main/docs/EN/CfProxy.md</string>
     <string name="fake_tls">Fake TLS domain (optional)</string>
     <string name="force_test_dc">Force test DCs</string>
     <string name="no_secure">No TLS for CF proxy/worker (port 80)</string>

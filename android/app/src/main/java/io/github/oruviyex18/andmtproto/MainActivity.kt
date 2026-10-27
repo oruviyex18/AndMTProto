@@ -256,6 +256,32 @@ private fun StatusCard(
     }
 }
 
+/**
+ * The shared CF proxy domains are often overloaded, so DCs without a direct
+ * WebSocket route (1, 3, 5) time out. Point to upstream's setup guides.
+ */
+@Composable
+private fun CfHint() {
+    val context = LocalContext.current
+    Text(stringResource(R.string.cf_hint), style = MaterialTheme.typography.bodySmall)
+    Row {
+        TextButton(onClick = { openUrl(context, context.getString(R.string.cf_worker_guide_url)) }) {
+            Text(stringResource(R.string.cf_worker_guide))
+        }
+        TextButton(onClick = { openUrl(context, context.getString(R.string.cf_proxy_guide_url)) }) {
+            Text(stringResource(R.string.cf_proxy_guide))
+        }
+    }
+}
+
+private fun openUrl(context: Context, url: String) {
+    try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    } catch (_: ActivityNotFoundException) {
+        copyLink(context, url)
+    }
+}
+
 @SuppressLint("BatteryLife")
 @Composable
 private fun BatteryHint() {
@@ -354,6 +380,7 @@ private fun SettingsForm(f: Form, onChange: (Form) -> Unit) {
     if (f.cfWorkerEnabled) {
         Field(f.cfWorkerDomains, R.string.cf_worker_domains) { onChange(f.copy(cfWorkerDomains = it)) }
     }
+    if (f.cfproxy && !f.cfUserEnabled && !f.cfWorkerEnabled) CfHint()
     Field(f.fakeTls, R.string.fake_tls) { onChange(f.copy(fakeTls = it.trim())) }
     Toggle(f.noSecure, R.string.no_secure) { onChange(f.copy(noSecure = it)) }
     Toggle(f.forceTestDc, R.string.force_test_dc) { onChange(f.copy(forceTestDc = it)) }
