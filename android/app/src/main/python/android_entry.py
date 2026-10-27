@@ -28,6 +28,7 @@ from typing import Any, Dict, Optional, Tuple
 from proxy import __version__
 from proxy.config import coerce_domain_list, parse_dc_ip_list, proxy_config
 from proxy.stats import stats
+from proxy import tg_ws_proxy
 from proxy.tg_ws_proxy import _run
 from proxy.utils import DomainCensorFilter, get_link_host
 
@@ -55,10 +56,15 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 
 # How far above a busy port to look for a free one.
 _PORT_SEARCH_RANGE = 50
+# How long stop() waits for a clean shutdown before dropping client connections.
+_GRACEFUL_STOP_S = 2.0
 
 _lock = threading.Lock()
 _proxy_thread: Optional[threading.Thread] = None
-# Created in start() before the thread runs, so stop() can always signal it.
+# Set by stop(); the proxy thread checks it when it publishes _async_stop, so a
+# stop() that arrives before the event loop exists is not lost.
+_stop_requested: Optional[threading.Event] = None
+# The running loop and its stop event, published by the proxy thread.
 _async_stop: Optional[Tuple[asyncio.AbstractEventLoop, asyncio.Event]] = None
 _last_error: Optional[Dict[str, Any]] = None
 _log_handler: Optional[logging.Handler] = None
@@ -171,10 +177,17 @@ def _setup_logging(log_dir: str, cfg: Dict[str, Any]) -> None:
     _log_handler = fh
 
 
-def _run_proxy_thread(loop: asyncio.AbstractEventLoop,
-                      stop_ev: asyncio.Event) -> None:
+def _run_proxy_thread(stop_requested: threading.Event) -> None:
     global _async_stop, _last_error
+    # The loop is created in this thread: a Windows proactor loop created in
+    # another thread may not wake up for call_soon_threadsafe().
+    loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+    stop_ev = asyncio.Event()
+    with _lock:
+        _async_stop = (loop, stop_ev)
+        if stop_requested.is_set():
+            stop_ev.set()  # stop() came before the loop existed
     try:
         loop.run_until_complete(_run(stop_event=stop_ev))
     except Exception as exc:
@@ -229,7 +242,7 @@ def start(cfg_json: str, log_dir: str) -> Optional[str]:
     JSON (see _error) when the config is invalid. Bind errors happen later in
     the proxy thread and show up in status().
     """
-    global _proxy_thread, _async_stop, _last_error
+    global _proxy_thread, _stop_requested, _last_error
     with _lock:
         if _is_running():
             return None
@@ -246,11 +259,9 @@ def start(cfg_json: str, log_dir: str) -> Optional[str]:
                  __version__, sys.version.split()[0])
         log.info("Starting proxy on %s:%d ...",
                  proxy_config.host, proxy_config.port)
-        loop = asyncio.new_event_loop()
-        stop_ev = asyncio.Event()
-        _async_stop = (loop, stop_ev)
+        _stop_requested = threading.Event()
         _proxy_thread = threading.Thread(
-            target=_run_proxy_thread, args=(loop, stop_ev),
+            target=_run_proxy_thread, args=(_stop_requested,),
             daemon=True, name="proxy")
         _proxy_thread.start()
         return None
@@ -260,17 +271,21 @@ def stop(timeout: float = 5.0) -> None:
     """Stop the proxy and wait up to `timeout` seconds for it to exit."""
     global _proxy_thread
     with _lock:
-        thread, stop_state = _proxy_thread, _async_stop
-    if stop_state is not None:
-        loop, stop_ev = stop_state
-        try:
-            # Safe before the loop runs: the callback waits in its queue.
-            loop.call_soon_threadsafe(stop_ev.set)
-        except RuntimeError:
-            pass  # loop already closed
+        thread = _proxy_thread
+        if _stop_requested is not None:
+            _stop_requested.set()
+        if _async_stop is not None:
+            loop, stop_ev = _async_stop
+            try:
+                loop.call_soon_threadsafe(stop_ev.set)
+            except RuntimeError:
+                pass  # loop already closed
     if thread is None:
         return
-    thread.join(timeout=timeout)
+    thread.join(timeout=min(_GRACEFUL_STOP_S, timeout))
+    if thread.is_alive():
+        _abort_lingering_clients()
+        thread.join(timeout=max(0.0, timeout - _GRACEFUL_STOP_S))
     with _lock:
         if thread.is_alive():
             # Keep the reference so status() and start() still see it.
@@ -279,6 +294,26 @@ def stop(timeout: float = 5.0) -> None:
         if _proxy_thread is thread:
             _proxy_thread = None
     log.info("Proxy stopped")
+
+
+def _abort_lingering_clients() -> None:
+    """Unblock upstream's shutdown when a client connection won't close.
+
+    Since Python 3.12, Server.wait_closed() in _run() waits for every client
+    connection; one that never finishes closing keeps the proxy thread alive.
+    Upstream builds its desktop apps with Python 3.11, so it doesn't hit this.
+    """
+    with _lock:
+        stop_state = _async_stop
+    server = tg_ws_proxy._server_instance
+    abort = getattr(server, "abort_clients", None)  # Python 3.13+
+    if stop_state is None or abort is None:
+        return
+    log.warning("Proxy is still closing connections; aborting them")
+    try:
+        stop_state[0].call_soon_threadsafe(abort)
+    except RuntimeError:
+        pass  # loop already closed
 
 
 def status() -> str:
