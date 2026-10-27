@@ -6,8 +6,11 @@ _run_proxy_thread, stop_proxy) without the desktop-only dependencies.
 Review this file whenever upstream changes ProxyConfig, _run() or the
 tray lifecycle code.
 
-Kotlin talks to this module only through start(), stop(), status(),
-proxy_link() and new_secret(); config and status travel as JSON strings.
+Kotlin (ProxyCore.kt) calls only start(), stop(), status() and proxy_link();
+config and status travel as JSON strings. Errors reach Kotlin as
+{"code", "detail", "suggested_port"} so the UI can show them in its own
+language. Codes: bad_secret, bad_port, bad_dc_ip, bad_fake_tls,
+port_in_use, permission, address, unknown.
 """
 from __future__ import annotations
 
@@ -50,22 +53,20 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "fake_tls_domain": "",
 }
 
-_lock = threading.Lock()
-_proxy_thread: Optional[threading.Thread] = None
-_async_stop: Optional[Tuple[asyncio.AbstractEventLoop, asyncio.Event]] = None
-# Errors reach Kotlin as {"code", "detail", "suggested_port"} so the UI can
-# show them in its own language. Codes: bad_secret, bad_port, bad_dc_ip,
-# port_in_use, permission, address, unknown.
-_last_error: Optional[Dict[str, Any]] = None
-_log_handler: Optional[logging.Handler] = None
-
 # How far above a busy port to look for a free one.
 _PORT_SEARCH_RANGE = 50
 
+_lock = threading.Lock()
+_proxy_thread: Optional[threading.Thread] = None
+# Created in start() before the thread runs, so stop() can always signal it.
+_async_stop: Optional[Tuple[asyncio.AbstractEventLoop, asyncio.Event]] = None
+_last_error: Optional[Dict[str, Any]] = None
+_log_handler: Optional[logging.Handler] = None
+
 
 class ConfigError(ValueError):
-    def __init__(self, code: str, detail: str = ""):
-        super().__init__(f"{code}: {detail}" if detail else code)
+    def __init__(self, code: str, detail: Any = None):
+        super().__init__(code if detail is None else f"{code}: {detail}")
         self.code = code
         self.detail = detail
 
@@ -85,8 +86,7 @@ def _merged(cfg_json: str) -> Dict[str, Any]:
     return cfg
 
 
-def _apply_config(cfg: Dict[str, Any]) -> None:
-    """Port of tray_common.apply_proxy_config; raises ConfigError on bad input."""
+def _secret(cfg: Dict[str, Any]) -> str:
     secret = str(cfg["secret"]).strip()
     try:
         if len(secret) != 32:
@@ -94,16 +94,37 @@ def _apply_config(cfg: Dict[str, Any]) -> None:
         bytes.fromhex(secret)
     except ValueError:
         raise ConfigError("bad_secret") from None
+    return secret
+
+
+def _port(cfg: Dict[str, Any]) -> int:
     try:
         port = int(cfg["port"])
         if not 1 <= port <= 65535:
             raise ValueError
     except (TypeError, ValueError):
         raise ConfigError("bad_port", cfg["port"]) from None
+    return port
+
+
+def _fake_tls_domain(cfg: Dict[str, Any]) -> str:
+    """The Fake TLS domain as ASCII; IDN domains are converted to punycode."""
+    domain = str(cfg["fake_tls_domain"]).strip()
+    if not domain:
+        return ""
+    try:
+        return domain.encode("idna").decode("ascii")
+    except UnicodeError:
+        raise ConfigError("bad_fake_tls", domain) from None
+
+
+def _apply_config(cfg: Dict[str, Any]) -> None:
+    """Port of tray_common.apply_proxy_config; raises ConfigError on bad input."""
+    secret, port, fake_tls = _secret(cfg), _port(cfg), _fake_tls_domain(cfg)
     try:
         dc_redirects = parse_dc_ip_list(cfg["dc_ip"])
     except ValueError as exc:
-        raise ConfigError("bad_dc_ip", getattr(exc, "entry", "")) from None
+        raise ConfigError("bad_dc_ip", getattr(exc, "entry", None)) from None
 
     pc = proxy_config
     pc.port = port
@@ -122,7 +143,7 @@ def _apply_config(cfg: Dict[str, Any]) -> None:
         worker_domains if cfg["cfproxy_worker_enabled"] else [])
     pc.force_test_dc = bool(cfg["force_test_dc"])
     pc.disable_secure = bool(cfg["no_secure"])
-    pc.fake_tls_domain = str(cfg["fake_tls_domain"]).strip()
+    pc.fake_tls_domain = fake_tls
 
 
 def _setup_logging(log_dir: str, cfg: Dict[str, Any]) -> None:
@@ -150,12 +171,10 @@ def _setup_logging(log_dir: str, cfg: Dict[str, Any]) -> None:
     _log_handler = fh
 
 
-def _run_proxy_thread() -> None:
+def _run_proxy_thread(loop: asyncio.AbstractEventLoop,
+                      stop_ev: asyncio.Event) -> None:
     global _async_stop, _last_error
-    loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    stop_ev = asyncio.Event()
-    _async_stop = (loop, stop_ev)
     try:
         loop.run_until_complete(_run(stop_event=stop_ev))
     except Exception as exc:
@@ -170,7 +189,9 @@ def _run_proxy_thread() -> None:
                 asyncio.gather(*pending, return_exceptions=True))
         loop.run_until_complete(loop.shutdown_asyncgens())
         loop.close()
-        _async_stop = None
+        with _lock:
+            if _async_stop is not None and _async_stop[0] is loop:
+                _async_stop = None
 
 
 def _describe_error(exc: BaseException) -> Dict[str, Any]:
@@ -204,10 +225,11 @@ def _is_running() -> bool:
 def start(cfg_json: str, log_dir: str) -> Optional[str]:
     """Start the proxy in a background thread.
 
-    Returns None on success, or the error as JSON (see _error) when the
-    config is invalid. Bind errors happen later and show up in status().
+    Returns None on success (or when it is already running), or the error as
+    JSON (see _error) when the config is invalid. Bind errors happen later in
+    the proxy thread and show up in status().
     """
-    global _proxy_thread, _last_error
+    global _proxy_thread, _async_stop, _last_error
     with _lock:
         if _is_running():
             return None
@@ -216,7 +238,7 @@ def start(cfg_json: str, log_dir: str) -> Optional[str]:
         try:
             _apply_config(cfg)
         except ConfigError as exc:
-            _last_error = _error(exc.code, exc.detail or None)
+            _last_error = _error(exc.code, exc.detail)
             log.error("Bad config: %s", exc)
             return json.dumps(_last_error)
         _last_error = None
@@ -224,28 +246,39 @@ def start(cfg_json: str, log_dir: str) -> Optional[str]:
                  __version__, sys.version.split()[0])
         log.info("Starting proxy on %s:%d ...",
                  proxy_config.host, proxy_config.port)
+        loop = asyncio.new_event_loop()
+        stop_ev = asyncio.Event()
+        _async_stop = (loop, stop_ev)
         _proxy_thread = threading.Thread(
-            target=_run_proxy_thread, daemon=True, name="proxy")
+            target=_run_proxy_thread, args=(loop, stop_ev),
+            daemon=True, name="proxy")
         _proxy_thread.start()
         return None
 
 
 def stop(timeout: float = 5.0) -> None:
+    """Stop the proxy and wait up to `timeout` seconds for it to exit."""
     global _proxy_thread
     with _lock:
-        stop_state = _async_stop
-        if stop_state:
-            loop, stop_ev = stop_state
-            try:
-                loop.call_soon_threadsafe(stop_ev.set)
-            except RuntimeError:
-                pass  # loop already closed
-        if _proxy_thread:
-            _proxy_thread.join(timeout=timeout)
-            if _proxy_thread.is_alive():
-                log.warning("Proxy thread did not stop within timeout")
-        _proxy_thread = None
-        log.info("Proxy stopped")
+        thread, stop_state = _proxy_thread, _async_stop
+    if stop_state is not None:
+        loop, stop_ev = stop_state
+        try:
+            # Safe before the loop runs: the callback waits in its queue.
+            loop.call_soon_threadsafe(stop_ev.set)
+        except RuntimeError:
+            pass  # loop already closed
+    if thread is None:
+        return
+    thread.join(timeout=timeout)
+    with _lock:
+        if thread.is_alive():
+            # Keep the reference so status() and start() still see it.
+            log.warning("Proxy thread did not stop within %.0fs", timeout)
+            return
+        if _proxy_thread is thread:
+            _proxy_thread = None
+    log.info("Proxy stopped")
 
 
 def status() -> str:
@@ -257,25 +290,20 @@ def status() -> str:
         "total": stats.connections_total,
         "bytes_up": stats.bytes_up,
         "bytes_down": stats.bytes_down,
-        "summary": stats.summary(),
     })
 
 
 def proxy_link(cfg_json: str) -> str:
+    """tg://proxy link for the config: dd-secret, or ee-secret with Fake TLS."""
     cfg = _merged(cfg_json)
     host = get_link_host(cfg["host"])
     secret = str(cfg["secret"]).strip()
-    ftls = str(cfg["fake_tls_domain"]).strip()
-    if ftls:
-        secret = "ee" + secret + ftls.encode('ascii').hex()
+    try:
+        fake_tls = _fake_tls_domain(cfg)
+    except ConfigError:
+        fake_tls = ""  # start() reports it; the plain link still works
+    if fake_tls:
+        secret = "ee" + secret + fake_tls.encode("ascii").hex()
     else:
         secret = "dd" + secret
     return f"tg://proxy?server={host}&port={cfg['port']}&secret={secret}"
-
-
-def new_secret() -> str:
-    return os.urandom(16).hex()
-
-
-def default_config() -> str:
-    return json.dumps(DEFAULT_CONFIG)

@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">AndMTProto</string>
+    <string name="app_name" translatable="false">AndMTProto</string>
 
     <string name="channel_name">Proxy status</string>
     <string name="notif_starting">Starting proxy…</string>
-    <string name="notif_running">Running on %1$s:%2$d · %3$d active</string>
+    <string name="notif_running">Running on %1$s:%2$d · active connections: %3$d</string>
     <string name="action_stop">Stop</string>
     <string name="action_open_telegram">Open in Telegram</string>
 
     <string name="status_running">Proxy is running</string>
     <string name="status_stopped">Proxy is stopped</string>
-    <string name="status_stats">Connections: %1$d active, %2$d total · ↑ %3$s ↓ %4$s</string>
+    <string name="status_stats">Connections — active: %1$d, total: %2$d · ↑ %3$s ↓ %4$s</string>
     <string name="core_version">Proxy core %1$s · app %2$s</string>
     <string name="start">Start</string>
     <string name="stop">Stop</string>
@@ -28,6 +28,7 @@
     <string name="error_bad_secret">The secret must be 32 hex characters.</string>
     <string name="error_bad_port">Port %1$s is not valid (1–65535).</string>
     <string name="error_bad_dc_ip">Invalid DC → IP line: “%1$s”. Use DC:IP, e.g. 4:149.154.167.220.</string>
+    <string name="error_bad_fake_tls">“%1$s” is not a valid Fake TLS domain.</string>
     <string name="error_unknown">Proxy error: %1$s</string>
     <string name="use_port">Use port %1$d</string>
 

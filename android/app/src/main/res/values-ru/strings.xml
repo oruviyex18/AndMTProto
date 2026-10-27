@@ -26,6 +26,7 @@
     <string name="error_bad_secret">Секрет должен состоять из 32 hex-символов.</string>
     <string name="error_bad_port">Недопустимый порт %1$s (1–65535).</string>
     <string name="error_bad_dc_ip">Неверная строка DC → IP: «%1$s». Формат DC:IP, например 4:149.154.167.220.</string>
+    <string name="error_bad_fake_tls">«%1$s» — недопустимый домен Fake TLS.</string>
     <string name="error_unknown">Ошибка прокси: %1$s</string>
     <string name="use_port">Использовать порт %1$d</string>
 

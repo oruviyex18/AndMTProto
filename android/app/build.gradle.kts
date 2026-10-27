@@ -1,9 +1,9 @@
 import java.util.Properties
 
 plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.plugin.compose")
-    id("com.chaquo.python")
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.chaquopy)
 }
 
 // The fork root is the upstream tg-ws-proxy checkout. Its proxy/ package is
@@ -99,9 +99,8 @@ chaquopy {
         // Optional: -Pandmtproto.buildPython=/path/to/python3.13 when it isn't on PATH.
         providers.gradleProperty("andmtproto.buildPython").orNull?.let { buildPython(it) }
         pip {
-            install("cryptography==42.0.8")
-            install("httpx[http2]==0.28.1")
-            install("certifi")
+            // Shared with CI's desktop tests (.github/workflows/android.yml).
+            install("-r", "requirements.txt")
         }
     }
     sourceSets {
@@ -120,15 +119,15 @@ tasks.configureEach {
 tasks.named("preBuild") { dependsOn(syncUpstreamProxy) }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
-    implementation(composeBom)
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    debugImplementation("androidx.compose.ui:ui-tooling")
+    implementation(platform(libs.compose.bom))
+    implementation(libs.compose.ui)
+    implementation(libs.compose.material3)
+    implementation(libs.compose.ui.tooling.preview)
+    debugImplementation(libs.compose.ui.tooling)
 
-    implementation("androidx.core:core-ktx:1.19.1")
-    implementation("androidx.activity:activity-compose:1.13.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.kotlinx.coroutines.android)
 }

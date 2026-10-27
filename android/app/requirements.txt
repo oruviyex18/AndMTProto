@@ -1,0 +1,6 @@
+# Python packages for the upstream proxy/ core, installed by Chaquopy (build.gradle.kts)
+# and by CI for the desktop tests (.github/workflows/android.yml).
+# cryptography 42.0.8 is the newest version with Chaquopy Android wheels (Python 3.13).
+cryptography==42.0.8
+httpx[http2]==0.28.1
+certifi
