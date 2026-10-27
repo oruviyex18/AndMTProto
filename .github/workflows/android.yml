@@ -107,5 +107,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp android/app/build/outputs/apk/release/app-release.apk "AndMTProto-${GITHUB_REF_NAME}.apk"
+          # Release notes come from the annotated tag's message (git tag -a ... -F notes.md).
           gh release create "$GITHUB_REF_NAME" "AndMTProto-${GITHUB_REF_NAME}.apk" \
-            --title "AndMTProto ${GITHUB_REF_NAME#android-v}" --generate-notes
+            --title "AndMTProto ${GITHUB_REF_NAME#android-v}" --notes-from-tag

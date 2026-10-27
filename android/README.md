@@ -14,6 +14,9 @@ listens on `127.0.0.1:1443`, and the Telegram app connects to it as an MTProto p
 | `app/src/main/java/.../ProxyService.kt` | Foreground service that owns the proxy thread, with notification actions. |
 | `app/src/main/java/.../MainActivity.kt` | Compose screen: status, start/stop, Telegram link, settings, logs. |
 | `app/src/main/java/.../ProxySettings.kt` | Settings, stored with the same JSON keys as the desktop tray config. |
+| `app/src/main/java/.../ProxyTileService.kt` | Quick Settings tile that shows and toggles the proxy. |
+| `app/src/main/java/.../BootReceiver.kt` | Starts the proxy after boot when "Start on boot" is on. |
+| `tools/make_icons.py` | Generates launcher and notification icons from upstream `icon.ico`. |
 | `tests/test_android_entry.py` | Desktop pytest for the adapter against the real `proxy/`. |
 
 ## Build
@@ -45,6 +48,16 @@ updates signed with a different key.
 
 Keep the keystore and its passwords out of the repository, with a backup. If the key is
 lost, existing installs can't be updated.
+
+### Releasing
+
+1. Bump `versionCode` and `androidRevision` in `app/build.gradle.kts` and merge to `main`.
+2. Write the release notes in a file and create an **annotated** tag with them; the
+   workflow publishes the tag message as the GitHub release notes:
+   ```bash
+   git tag -a android-v1.11.2-android.3 -F notes.md
+   git push origin android-v1.11.2-android.3
+   ```
 
 Run the adapter tests locally:
 

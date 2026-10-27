@@ -26,6 +26,8 @@ data class ProxySettings(
     val forceTestDc: Boolean = false,
     val noSecure: Boolean = false,
     val verbose: Boolean = false,
+    /** Android-only; ignored by the Python core. */
+    val startOnBoot: Boolean = false,
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("host", host)
@@ -44,6 +46,7 @@ data class ProxySettings(
         .put("force_test_dc", forceTestDc)
         .put("no_secure", noSecure)
         .put("verbose", verbose)
+        .put("start_on_boot", startOnBoot)
 
     companion object {
         fun fromJson(o: JSONObject): ProxySettings {
@@ -66,6 +69,7 @@ data class ProxySettings(
                 forceTestDc = o.optBoolean("force_test_dc", d.forceTestDc),
                 noSecure = o.optBoolean("no_secure", d.noSecure),
                 verbose = o.optBoolean("verbose", d.verbose),
+                startOnBoot = o.optBoolean("start_on_boot", d.startOnBoot),
             )
         }
 
