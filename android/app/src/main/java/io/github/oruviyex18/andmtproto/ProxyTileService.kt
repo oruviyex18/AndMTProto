@@ -19,9 +19,9 @@ class ProxyTileService : TileService() {
 
     override fun onStartListening() {
         listening = CoroutineScope(Dispatchers.Main).launch {
-            ProxyService.status.collect { update(it) }
+            ProxyCore.state.collect { update(it) }
         }
-        ProxyService.refresh()
+        ProxyCore.refresh()
     }
 
     override fun onStopListening() {
@@ -30,7 +30,7 @@ class ProxyTileService : TileService() {
     }
 
     override fun onClick() {
-        if (ProxyService.status.value.running) {
+        if (ProxyCore.state.value.running) {
             ProxyService.stop(this)
             return
         }

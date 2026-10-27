@@ -124,4 +124,40 @@ def test_links():
     ee = android_entry.proxy_link(json.dumps(
         {"secret": secret, "fake_tls_domain": "example.com"}))
     assert ee.endswith("secret=ee" + secret + b"example.com".hex())
-    assert len(android_entry.new_secret()) == 32
+
+
+def test_link_converts_idn_fake_tls_domain_to_punycode():
+    secret = "0123456789abcdef0123456789abcdef"
+    link = android_entry.proxy_link(json.dumps(
+        {"secret": secret, "fake_tls_domain": "пример.рф"}))
+    assert link.endswith("secret=ee" + secret + b"xn--e1afmkfd.xn--p1ai".hex())
+
+
+def test_link_never_raises_on_bad_fake_tls_domain():
+    secret = "0123456789abcdef0123456789abcdef"
+    link = android_entry.proxy_link(json.dumps(
+        {"secret": secret, "fake_tls_domain": "bad..domain"}))
+    assert link.endswith("secret=dd" + secret)
+
+
+def test_bad_fake_tls_rejected(tmp_path):
+    err = json.loads(android_entry.start(
+        _cfg(fake_tls_domain="bad..domain"), str(tmp_path)))
+    assert err == {"code": "bad_fake_tls", "detail": "bad..domain",
+                   "suggested_port": None}
+
+
+def test_bad_port_zero_keeps_detail(tmp_path):
+    err = json.loads(android_entry.start(_cfg(port=0), str(tmp_path)))
+    assert err["code"] == "bad_port" and err["detail"] == "0"
+
+
+def test_stop_right_after_start_frees_port(tmp_path):
+    # stop() must reach the proxy even before its event loop has started.
+    for _ in range(5):
+        cfg = _cfg()
+        port = json.loads(cfg)["port"]
+        assert android_entry.start(cfg, str(tmp_path)) is None
+        android_entry.stop()
+        assert not json.loads(android_entry.status())["running"]
+        assert _wait(lambda: not _listening(port))

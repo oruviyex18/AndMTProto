@@ -17,6 +17,8 @@ listens on `127.0.0.1:1443`, and the Telegram app connects to it as an MTProto p
 | `app/src/main/java/.../ProxyTileService.kt` | Quick Settings tile that shows and toggles the proxy. |
 | `app/src/main/java/.../BootReceiver.kt` | Starts the proxy after boot when "Start on boot" is on. |
 | `tools/make_icons.py` | Generates launcher and notification icons from upstream `icon.ico`. |
+| `app/requirements.txt` | Python packages for the core, shared by Chaquopy and CI. |
+| `gradle/libs.versions.toml` | Versions of Gradle plugins and Android libraries. |
 | `tests/test_android_entry.py` | Desktop pytest for the adapter against the real `proxy/`. |
 
 ## Build
@@ -62,7 +64,7 @@ lost, existing installs can't be updated.
 Run the adapter tests locally:
 
 ```bash
-pip install "cryptography==42.0.8" "httpx[http2]==0.28.1" certifi pytest
+pip install -r android/app/requirements.txt pytest
 python -m pytest android/tests
 ```
 
@@ -80,8 +82,8 @@ When reviewing a sync PR:
 2. **`_run()` / `stop_event` or the lifecycle in `utils/tray_common.py` changed:**
    update `start()`/`stop()` in `android_entry.py`.
 3. **New import or version pin in `pyproject.toml` that `proxy/` uses:** add it to
-   `chaquopy { pip { } }` in `app/build.gradle.kts` and to `android.yml`. A native
-   package needs an Android wheel from Chaquopy's index.
+   `app/requirements.txt` (Chaquopy and CI both install from it). A native package needs an
+   Android wheel from Chaquopy's index.
 4. **`icon.ico` changed:** regenerate the launcher and notification icons with
    `pip install Pillow && python android/tools/make_icons.py`, then commit `android/app/src/main/res`.
 5. **Only desktop files changed** (`windows.py`, `ui/`, `utils/`, packaging): nothing to do.

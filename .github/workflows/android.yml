@@ -16,7 +16,7 @@ on:
         required: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   test:
@@ -30,9 +30,9 @@ jobs:
         with:
           python-version: '3.13'
 
-      # Same pins as chaquopy.pip in android/app/build.gradle.kts.
+      # The same pins Chaquopy installs into the APK.
       - name: Install core dependencies
-        run: pip install "cryptography==42.0.8" "httpx[http2]==0.28.1" certifi pytest
+        run: pip install -r android/app/requirements.txt pytest
 
       - name: Upstream core tests
         run: |
@@ -47,6 +47,8 @@ jobs:
   build:
     needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # only for "Publish release" on android-v* tags
     steps:
       - uses: actions/checkout@v7
         with:

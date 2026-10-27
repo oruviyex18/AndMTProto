@@ -85,8 +85,7 @@ def main() -> None:
     for density, scale in DENSITIES.items():
         # Legacy icon: the circle as-is, 48dp.
         legacy = best_frame(frames, round(48 * scale))
-        save(legacy, f"mipmap-{density}", "ic_launcher")
-        save(legacy, f"mipmap-{density}", "ic_launcher_round")
+        save(legacy, f"mipmap-{density}", "ic_launcher")  # already round; also the roundIcon
 
         # Adaptive foreground: 108dp canvas; the circle maps to the 72dp visible area,
         # so the glyph keeps its size and position relative to the circle.
@@ -125,8 +124,7 @@ def main() -> None:
     )
     anydpi = RES / "mipmap-anydpi-v26"
     anydpi.mkdir(parents=True, exist_ok=True)
-    for name in ("ic_launcher", "ic_launcher_round"):
-        (anydpi / f"{name}.xml").write_text(adaptive, encoding="utf-8", newline="\n")
+    (anydpi / "ic_launcher.xml").write_text(adaptive, encoding="utf-8", newline="\n")
     print(f"background {colour}; adaptive icons in {anydpi.relative_to(ROOT)}")
 
 

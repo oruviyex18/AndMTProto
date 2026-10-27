@@ -1,6 +1,7 @@
 package io.github.oruviyex18.andmtproto
 
 import android.content.Context
+import androidx.core.content.edit
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.SecureRandom
@@ -93,7 +94,7 @@ class SettingsStore(context: Context) {
     }
 
     fun save(settings: ProxySettings) {
-        prefs.edit().putString(KEY, settings.toJson().toString()).apply()
+        prefs.edit { putString(KEY, settings.toJson().toString()) }
     }
 
     private companion object {
