@@ -36,7 +36,7 @@
 > - **"App not scanned"**, offering to send it for a scan. Android shows this for any app from outside Google Play whose signing key Google doesn't know yet.
 > - **"App blocked" / "Harmful app"**. Google's automated check wrongly treats AndMTProto as malicious, most likely because it works as a proxy: it accepts network connections, relays traffic and runs in the background. This is a false positive.
 >
-> AndMTProto collects no data and talks to no servers other than Telegram's and Cloudflare's (the fallback route through the shared CF proxy or your own domains and Worker). The proxy listens only on `127.0.0.1`, so only Telegram on the same phone can connect to it. All the code is open in this repository, and the APKs are built from it by GitHub Actions.
+> AndMTProto collects no data and talks to no servers other than Telegram, Cloudflare (the fallback route through the shared CF proxy or your own domains and Worker) and GitHub (where the current list of CF proxy domains is downloaded from). The proxy listens only on `127.0.0.1`, so only Telegram on the same phone can connect to it. All the code is open in this repository, and the APKs are built from it by GitHub Actions.
 >
 > To install the app, tap **More details** (or the down arrow) → **Install anyway**. You don't need to send it for a scan.
 >
