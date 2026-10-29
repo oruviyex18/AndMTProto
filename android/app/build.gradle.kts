@@ -15,7 +15,7 @@ val upstreamVersion: String = Regex("""__version__\s*=\s*"([^"]+)"""")
     ?: error("Cannot read __version__ from proxy/__init__.py")
 
 // Bump for every Android release; reset the suffix when upstream bumps its version.
-val androidRevision = 4
+val androidRevision = 5
 
 // Release signing, from -Pandmtproto.signing=<keystore.properties> (local builds)
 // or ANDROID_KEYSTORE_FILE / _PASSWORD / ANDROID_KEY_ALIAS / _PASSWORD (CI).
@@ -54,7 +54,7 @@ android {
         applicationId = "io.github.oruviyex18.andmtproto"
         minSdk = 24
         targetSdk = 36
-        versionCode = 4
+        versionCode = 5
         versionName = "$upstreamVersion-android.$androidRevision"
 
         ndk {
