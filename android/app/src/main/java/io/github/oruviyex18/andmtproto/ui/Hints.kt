@@ -14,9 +14,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import io.github.oruviyex18.andmtproto.R
 
-/** Asks to exempt the app from battery optimisation until it is. */
+/**
+ * Asks to exempt the app from battery optimisation until it is. Not on Xiaomi:
+ * MIUI replaces the system list with its own screen, which never grants the
+ * Android exemption, so the hint would never go away; [MiuiHint] covers it there.
+ */
 @Composable
 fun BatteryHint() {
+    if (isXiaomiDevice) return
     val context = LocalContext.current
     val pm = remember { context.getSystemService(PowerManager::class.java) }
     var exempt by remember { mutableStateOf(pm.isIgnoringBatteryOptimizations(context.packageName)) }
@@ -33,14 +38,18 @@ fun BatteryHint() {
 }
 
 /**
- * MIUI / HyperOS stop background apps on top of Android's battery optimisation,
- * and their Autostart setting can't be read, so the hint stays on Xiaomi devices.
+ * MIUI / HyperOS stop background apps on their own, and neither their activity
+ * control nor Autostart setting can be read, so the hint stays on Xiaomi devices.
+ * The battery button opens MIUI's activity control there.
  */
 @Composable
 fun MiuiHint() {
     if (!isXiaomiDevice) return
     val context = LocalContext.current
     Text(stringResource(R.string.miui_hint), style = MaterialTheme.typography.bodySmall)
+    TextButton(onClick = { context.openBatteryOptimizationSettings() }) {
+        Text(stringResource(R.string.battery_button))
+    }
     TextButton(onClick = { context.openMiuiAutostart() }) {
         Text(stringResource(R.string.miui_button))
     }

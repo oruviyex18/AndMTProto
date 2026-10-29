@@ -1,6 +1,5 @@
 package io.github.oruviyex18.andmtproto.ui
 
-import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -51,12 +50,14 @@ internal fun Context.openInTelegram(link: String) {
     }
 }
 
-@SuppressLint("BatteryLife")
+/**
+ * The system list of battery-optimised apps, where the user exempts AndMTProto.
+ * Not the direct exemption request: that needs REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+ * a permission Play Protect counts against apps installed outside Google Play.
+ */
 internal fun Context.openBatteryOptimizationSettings() {
-    val request = Intent(
-        Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, "package:$packageName".toUri()
-    )
-    startActivitySafely(request) || startActivitySafely(appDetailsIntent())
+    startActivitySafely(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) ||
+        startActivitySafely(appDetailsIntent())
 }
 
 /** MIUI's Autostart screen, or the app's system settings page where it doesn't exist. */
