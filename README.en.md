@@ -27,18 +27,15 @@
 > **BTC**: `bc1qr8vd6jelkyyry3m4mq6z5txdx4pl856fu6ss0w`  
 > **ETH**: `0x1417878fdc5047E670a77748B34819b9A49C72F1`  
 
-> [!CAUTION]
+> [!IMPORTANT]
 >
-> ### Google Play Protect warning
+> ### Google Play Protect
 >
-> When you install the app, Google Play Protect may show one of two warnings:
+> AndMTProto has passed Google Play Protect's review. Android may still warn that the app comes from outside Google Play or hasn't been scanned yet; it does this for apps installed outside the store. Tap **More details** (or the down arrow) → **Install anyway**. If Android offers to send the app for a scan, you can accept.
 >
-> - **"App not scanned"**, offering to send it for a scan. Android shows this for any app from outside Google Play whose signing key Google doesn't know yet.
-> - **"App blocked" / "Harmful app"**. Google's automated check wrongly treats AndMTProto as malicious, most likely because it works as a proxy: it accepts network connections, relays traffic and runs in the background. This is a false positive.
+> If Google Play Protect calls AndMTProto a **harmful app**, it's most likely an old version, or the file didn't come from here or was modified. Delete it and download the latest version from the releases page.
 >
 > AndMTProto collects no data and talks to no servers other than Telegram, Cloudflare (the fallback route through the shared CF proxy or your own domains and Worker) and GitHub (where the current list of CF proxy domains is downloaded from). The proxy listens only on `127.0.0.1`, so only Telegram on the same phone can connect to it. All the code is open in this repository, and the APKs are built from it by GitHub Actions.
->
-> To install the app, tap **More details** (or the down arrow) → **Install anyway**. You don't need to send it for a scan.
 >
 > **Download the APK only from [this repository's releases page](https://github.com/oruviyex18/AndMTProto/releases).** Every release since `1.11.2-android.2` is signed with the same AndMTProto key (certificate SHA-256 starts with `14:03:0C:3F`), so Android won't install a tampered build over it.
 
