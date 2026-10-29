@@ -15,7 +15,7 @@
     <string name="copy_link">Копировать ссылку</string>
     <string name="link_copied">Ссылка скопирована</string>
     <string name="telegram_not_found">Telegram не установлен. Скопируйте ссылку.</string>
-    <string name="battery_hint">Оптимизация батареи может остановить прокси в фоне.</string>
+    <string name="battery_hint">Оптимизация батареи может остановить прокси в фоне. В открывшемся списке выберите «Все приложения», найдите AndMTProto и выберите «Не экономить».</string>
     <string name="battery_button">Разрешить работу в фоне</string>
     <string name="miui_hint">На Xiaomi (MIUI / HyperOS) также включите для AndMTProto «Автозапуск» и выберите «Нет ограничений» в контроле активности, иначе система может остановить прокси.</string>
     <string name="miui_button">Открыть настройки автозапуска</string>

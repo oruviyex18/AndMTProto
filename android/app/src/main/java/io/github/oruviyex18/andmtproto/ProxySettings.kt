@@ -82,7 +82,8 @@ data class ProxySettings(
 }
 
 class SettingsStore(context: Context) {
-    private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    private val appContext = context.applicationContext
+    private val prefs = appContext.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
     fun load(): ProxySettings {
         val stored = prefs.getString(KEY, null)?.let {
@@ -95,6 +96,7 @@ class SettingsStore(context: Context) {
 
     fun save(settings: ProxySettings) {
         prefs.edit { putString(KEY, settings.toJson().toString()) }
+        BootReceiver.setEnabled(appContext, settings.startOnBoot)
     }
 
     private companion object {
