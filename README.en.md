@@ -101,8 +101,8 @@ If Telegram doesn't open, tap **Copy link**, send the link to your Saved Message
 
 To keep the system from stopping the proxy:
 
-- Tap **Allow background work** in AndMTProto. In the list that opens, show all apps, pick AndMTProto and choose "Don't optimise" (the wording depends on the phone).
-- **Xiaomi, Redmi, POCO (MIUI / HyperOS):** tap **Open Autostart settings** and turn on Autostart for AndMTProto. In the app's settings, set its battery saver to "No restrictions".
+- Tap **Allow background work** in AndMTProto. In the list that opens, find AndMTProto and turn battery optimisation off for it (the wording depends on the phone).
+- **Xiaomi, Redmi, POCO (MIUI / HyperOS):** tap **Allow background work**, pick AndMTProto, open its background activity control and choose "No restrictions". Then tap **Open Autostart settings** and turn on Autostart for AndMTProto.
 
 ## How it works
 

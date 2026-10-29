@@ -17,9 +17,9 @@
     <string name="copy_link">Copy link</string>
     <string name="link_copied">Link copied</string>
     <string name="telegram_not_found">Telegram is not installed. Copy the link instead.</string>
-    <string name="battery_hint">Battery optimisation may stop the proxy in the background. In the list that opens, show all apps, pick AndMTProto and choose “Don’t optimise”.</string>
+    <string name="battery_hint">Battery optimisation may stop the proxy in the background. In the list that opens, find AndMTProto and turn optimisation off for it (if it isn’t listed, switch the list to all apps).</string>
     <string name="battery_button">Allow background work</string>
-    <string name="miui_hint">On Xiaomi (MIUI / HyperOS), also turn on Autostart for AndMTProto and set its battery saver to “No restrictions”, or the system may stop the proxy.</string>
+    <string name="miui_hint">On Xiaomi (MIUI / HyperOS) the system may stop the proxy in the background. Tap “Allow background work”, pick AndMTProto, open its background activity control and choose “No restrictions”. Then turn on Autostart for AndMTProto.</string>
     <string name="miui_button">Open Autostart settings</string>
 
     <string name="error_port_in_use">Port %1$s is already used by another app.</string>
