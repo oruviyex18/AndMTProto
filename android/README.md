@@ -95,11 +95,10 @@ When reviewing a sync PR:
    `ProxySettings.kt`, the settings form in `MainActivity.kt`, and both `strings.xml`.
 2. **`_run()` / `stop_event` or the lifecycle in `utils/tray_common.py` changed:**
    update `start()`/`stop()` in `android_entry.py`.
-3. **TLS context code changed** (`create_ssl_context` in `proxy/utils.py`, `_ssl_ctx` /
-   `_ssl_ctx_fronting` in `proxy/raw_websocket.py`, `_default_ssl_context` in
-   `proxy/h2_transport.py`, or a new TLS client): update `_patch_core_tls()` in
-   `android_entry.py`. It limits the key exchange to X25519 because some ISPs' DPI stalls
-   the large post-quantum ClientHello; `test_core_tls_offers_only_x25519` checks it.
+3. **TLS context code changed** (`create_ssl_context` / `set_x25519` in `proxy/utils.py`,
+   or a new TLS client): `test_core_tls_offers_only_x25519` must still pass. Upstream limits
+   the key exchange to X25519 because some ISPs' DPI stalls the large post-quantum
+   ClientHello; if that goes away, restore an adapter patch (see android.6, PR #8).
 4. **New import or version pin in `pyproject.toml` that `proxy/` uses:** add it to
    `app/requirements.txt` (Chaquopy and CI both install from it). A native package needs an
    Android wheel from Chaquopy's index.
@@ -107,7 +106,8 @@ When reviewing a sync PR:
    `pip install Pillow && python android/tools/make_icons.py`, then commit `android/app/src/main/res`.
 6. **Only desktop files changed** (`windows.py`, `ui/`, `utils/`, packaging): nothing to do.
 7. Install the APK, connect Telegram, and check that chats and media load. Then bump
-   `versionCode` and `androidRevision` in `app/build.gradle.kts` and merge.
+   `versionCode` in `app/build.gradle.kts`, set `androidRevision` (back to 1 when
+   upstream's `__version__` changed, otherwise +1), and merge.
    `versionName` follows upstream's `__version__` automatically.
 
 One-time setup on the fork: enable Actions, and allow GitHub Actions to create pull

@@ -21,14 +21,11 @@ import logging
 import logging.handlers
 import os
 import socket
-import ssl
 import sys
 import threading
 from typing import Any, Dict, Optional, Tuple
 
 from proxy import __version__
-from proxy import h2_transport, raw_websocket
-from proxy import utils as proxy_utils
 from proxy.config import coerce_domain_list, parse_dc_ip_list, proxy_config
 from proxy.stats import stats
 from proxy import tg_ws_proxy
@@ -36,37 +33,6 @@ from proxy.tg_ws_proxy import _run
 from proxy.utils import DomainCensorFilter, get_link_host
 
 log = logging.getLogger('tg-mtproto-proxy')
-
-# The app's OpenSSL 3.5 offers a post-quantum X25519MLKEM768 key share by
-# default, which makes the TLS ClientHello about 1.5 KB. Some Russian ISPs'
-# DPI (seen on Beeline, Oct 2026) stalls such handshakes, so every CF proxy
-# and WebSocket connection timed out once direct Telegram IPs were blocked.
-# A plain X25519 key share keeps the ClientHello small; the MTProto payload
-# inside stays encrypted as before.
-_TLS_GROUP = "X25519"
-
-
-def _restrict_tls_group(context: ssl.SSLContext) -> ssl.SSLContext:
-    context.set_ecdh_curve(_TLS_GROUP)
-    return context
-
-
-def _patch_core_tls() -> None:
-    """Applies _TLS_GROUP to every TLS context the upstream core makes."""
-    create = proxy_utils.create_ssl_context
-
-    def create_ssl_context(**kwargs: Any) -> ssl.SSLContext:
-        return _restrict_tls_group(create(**kwargs))
-
-    for module in (proxy_utils, raw_websocket, h2_transport):
-        module.create_ssl_context = create_ssl_context
-    # Contexts raw_websocket built at import time, and h2's cached one.
-    _restrict_tls_group(raw_websocket._ssl_ctx)
-    _restrict_tls_group(raw_websocket._ssl_ctx_fronting)
-    h2_transport._default_ssl_context.cache_clear()
-
-
-_patch_core_tls()
 
 # Same keys and defaults as utils/default_config.py, plus fake_tls_domain.
 DEFAULT_CONFIG: Dict[str, Any] = {

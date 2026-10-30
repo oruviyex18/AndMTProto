@@ -231,7 +231,8 @@ def _handshakes(context, group: str) -> bool:
 
 
 def test_core_tls_offers_only_x25519():
-    # A post-quantum key share makes the ClientHello big enough for some DPI to stall it.
+    # Upstream limits TLS to X25519 since 1.11.3 (android.6 patched this in the adapter):
+    # a post-quantum key share makes the ClientHello big enough for some DPI to stall it.
     from proxy import h2_transport, raw_websocket, utils
 
     contexts = [utils.create_ssl_context(), h2_transport._default_ssl_context(),
