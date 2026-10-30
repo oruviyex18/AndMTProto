@@ -69,6 +69,7 @@ New versions install over old ones and keep your settings. The exceptions are ve
 - **Copy link**: copies the connection link
 - **Settings**: port, secret, DC → IP, CF proxy and CF Worker, Fake TLS and more
 - **Log**: the latest proxy log lines right in the app
+- **Check for updates**: opens the latest release page, where you can compare its version with the one shown in the app and download the new APK if needed
 - **Quick Settings tile**: turns the proxy on and off from the notification shade
 - **Start on boot**: the proxy starts by itself after a restart (after the first unlock)
 - Hints for background work: battery optimisation and Autostart on Xiaomi (MIUI / HyperOS)

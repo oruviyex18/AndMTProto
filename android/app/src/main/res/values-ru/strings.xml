@@ -10,6 +10,7 @@
     <string name="status_stopped">Прокси остановлен</string>
     <string name="status_stats">Соединения: активных %1$d, всего %2$d · ↑ %3$s ↓ %4$s</string>
     <string name="core_version">Ядро прокси %1$s · приложение %2$s</string>
+    <string name="check_updates">Проверить обновления</string>
     <string name="start">Запустить</string>
     <string name="stop">Остановить</string>
     <string name="copy_link">Копировать ссылку</string>
