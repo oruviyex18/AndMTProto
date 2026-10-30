@@ -16,6 +16,8 @@ AndMTProto запускает на телефоне локальный MTProto-�
 2. Откройте файл. Если Android спросит, разрешите установку приложений из этого источника (браузера или файлового менеджера) и вернитесь назад.
 3. Нажмите **Установить**.
 
+AndMTProto прошёл проверку Google Play Защиты. Если Android всё же предупредит, что приложение установлено не из Google Play, нажмите **Подробнее** → **Всё равно установить**.
+
 **Обновление:**
 - **С версии 1.11.2-android.2 или новее** — установите поверх, настройки сохранятся.
 - **С версии 1.11.2-android.1 или собранной самостоятельно debug-версии** — сначала удалите старую версию (она подписана другим ключом), затем установите новую. Настройки придётся задать заново.
@@ -41,8 +43,8 @@ AndMTProto запускает на телефоне локальный MTProto-�
 
 ### 3. Работа в фоне
 Чтобы система не останавливала прокси:
-- Нажмите **Разрешить работу в фоне** в AndMTProto и подтвердите отключение оптимизации батареи.
-- **Xiaomi, Redmi, POCO (MIUI / HyperOS):** нажмите **Открыть настройки автозапуска** и включите автозапуск для AndMTProto. В настройках приложения выберите для контроля активности «Нет ограничений».
+- Нажмите **Разрешить работу в фоне** в AndMTProto. В открывшемся списке найдите AndMTProto и отключите для него оптимизацию батареи (названия пунктов зависят от телефона).
+- **Xiaomi, Redmi, POCO (MIUI / HyperOS):** нажмите **Разрешить работу в фоне**, выберите AndMTProto → «Контроль фоновой активности» → «Нет ограничений». Затем нажмите **Открыть настройки автозапуска** и включите автозапуск для AndMTProto.
 - По желанию включите **Запускать при включении телефона** — прокси запустится сам после перезагрузки (после первой разблокировки).
 - По желанию добавьте плитку **AndMTProto** в шторку быстрых настроек (карандаш «Изменить» в шторке) — ею можно включать и выключать прокси.
 
@@ -70,9 +72,9 @@ SHA-256 сертификата подписи: `14:03:0C:3F:EE:D9:4B:9F:5F:21:CF
 
 {{CHANGES_EN}}
 
-**Install:** Android 7.0+, 64-bit ARM or x86_64. From 1.11.2-android.2 or newer, install over it (settings are kept). From 1.11.2-android.1 or a self-built debug APK, uninstall first (different signing key).
+**Install:** Android 7.0+, 64-bit ARM or x86_64. The app has passed Google Play Protect's review; if Android still warns it isn't from Google Play, tap **More details** → **Install anyway**. From 1.11.2-android.2 or newer, install over it (settings are kept). From 1.11.2-android.1 or a self-built debug APK, uninstall first (different signing key).
 
-**Set up:** tap **Start**, then **Open in Telegram** → **Connect proxy**. Manually: Telegram → Settings → Data and Storage → Proxy Settings → Add Proxy → MTProto, server `127.0.0.1`, port `1443`, key from **Copy link**. Allow background work; on Xiaomi also enable Autostart. Optional: **Start on boot** and the Quick Settings tile.
+**Set up:** tap **Start**, then **Open in Telegram** → **Connect proxy**. Manually: Telegram → Settings → Data and Storage → Proxy Settings → Add Proxy → MTProto, server `127.0.0.1`, port `1443`, key from **Copy link**. Tap **Allow background work** and turn optimisation off for AndMTProto; on Xiaomi pick AndMTProto → background activity control → No restrictions, and enable Autostart. Optional: **Start on boot** and the Quick Settings tile.
 
 **Known issues:** DC 1, 3 and 5 may time out through the shared CF proxy; your own CF Worker or domain fixes this.
 
