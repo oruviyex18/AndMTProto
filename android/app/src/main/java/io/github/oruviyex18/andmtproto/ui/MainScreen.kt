@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -25,6 +26,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -162,10 +164,18 @@ private fun StatusCard(
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            if (status.running) {
-                OutlinedButton(onClick = onStop) { Text(stringResource(R.string.stop)) }
-            } else {
-                Button(onClick = onStart) { Text(stringResource(R.string.start)) }
+            val releasesUrl = stringResource(R.string.latest_release_url)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                if (status.running) {
+                    OutlinedButton(onClick = onStop) { Text(stringResource(R.string.stop)) }
+                } else {
+                    Button(onClick = onStart) { Text(stringResource(R.string.start)) }
+                }
+                Spacer(Modifier.weight(1f))
+                // The release page shows the newest APK and its notes; the user compares versions there.
+                TextButton(onClick = { context.openUrl(releasesUrl) }) {
+                    Text(stringResource(R.string.check_updates))
+                }
             }
         }
     }
