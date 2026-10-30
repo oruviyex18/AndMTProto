@@ -17,6 +17,7 @@ listens on `127.0.0.1:1443`, and the Telegram app connects to it as an MTProto p
 | `app/src/main/java/.../ProxyTileService.kt` | Quick Settings tile that shows and toggles the proxy. |
 | `app/src/main/java/.../BootReceiver.kt` | Starts the proxy after boot when "Start on boot" is on. |
 | `tools/make_icons.py` | Generates launcher and notification icons from upstream `icon.ico`. |
+| `release-notes-template.md`, `tools/release_notes.py` | Release notes template (Russian, with install and setup guide) and the script that fills it in. |
 | `app/requirements.txt` | Python packages for the core, shared by Chaquopy and CI. |
 | `gradle/libs.versions.toml` | Versions of Gradle plugins and Android libraries. |
 | `tests/test_android_entry.py` | Desktop pytest for the adapter against the real `proxy/`. |
@@ -53,13 +54,26 @@ lost, existing installs can't be updated.
 
 ### Releasing
 
+Release notes are in Russian, with the installation and setup guide, and an English
+summary at the end. They come from [`release-notes-template.md`](release-notes-template.md);
+only the summary and the list of changes are written for each release.
+
 1. Bump `versionCode` and `androidRevision` in `app/build.gradle.kts` and merge to `main`.
-2. Write the release notes in a file and create an **annotated** tag with them; the
-   workflow publishes the tag message as the GitHub release notes:
+2. Generate the notes from the repository root. This fills in the version, the previous release
+   and the core version, and writes `android/build/release-notes.md` (not committed):
    ```bash
-   git tag -a android-v1.11.2-android.3 -F notes.md
-   git push origin android-v1.11.2-android.3
+   python android/tools/release_notes.py
    ```
+3. In that file, replace `{{SUMMARY}}` and `{{CHANGES}}` (Russian) and `{{SUMMARY_EN}}` and
+   `{{CHANGES_EN}}` (English). If the installation or setup steps changed, update the template too.
+4. Create an **annotated** tag with the notes and push it. `--cleanup=verbatim` keeps the
+   `##` headings, which git would otherwise strip as comments:
+   ```bash
+   git tag -a android-v1.11.2-android.5 --cleanup=verbatim -F android/build/release-notes.md
+   git push origin android-v1.11.2-android.5
+   ```
+   The workflow refuses to build a tag whose message is empty or still contains `{{...}}`,
+   and publishes the message as the GitHub release notes.
 
 Run the adapter tests locally:
 
