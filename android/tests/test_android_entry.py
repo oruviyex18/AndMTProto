@@ -161,3 +161,81 @@ def test_stop_right_after_start_frees_port(tmp_path):
         android_entry.stop()
         assert not json.loads(android_entry.status())["running"]
         assert _wait(lambda: not _listening(port))
+
+
+
+def _tls_server(group: str):
+    """A one-shot TLS 1.3 server on localhost offering one key-exchange group.
+
+    Returns (port, cert_pem) so clients can trust the self-signed certificate.
+    """
+    import datetime
+    import ssl
+    import tempfile
+    import threading
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.x509.oid import NameOID
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, 'localhost')])
+    now = datetime.datetime.now(datetime.timezone.utc)
+    cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name)
+            .public_key(key.public_key()).serial_number(x509.random_serial_number())
+            .not_valid_before(now - datetime.timedelta(minutes=1))
+            .not_valid_after(now + datetime.timedelta(days=1))
+            .add_extension(x509.SubjectAlternativeName([x509.DNSName('localhost')]), critical=False)
+            .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+            .sign(key, hashes.SHA256()))
+    cert_pem = cert.public_bytes(serialization.Encoding.PEM).decode()
+    with tempfile.NamedTemporaryFile('w', suffix='.pem', delete=False) as pem:
+        pem.write(cert_pem)
+        pem.write(key.private_bytes(serialization.Encoding.PEM,
+                                    serialization.PrivateFormat.PKCS8,
+                                    serialization.NoEncryption()).decode())
+
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_3
+    ctx.load_cert_chain(pem.name)
+    ctx.set_ecdh_curve(group)
+    os.unlink(pem.name)
+
+    listener = socket.create_server(('127.0.0.1', 0))
+
+    def serve():
+        try:
+            conn, _ = listener.accept()
+            with ctx.wrap_socket(conn, server_side=True) as tls:
+                tls.recv(1)
+        except (ssl.SSLError, OSError):
+            pass
+        finally:
+            listener.close()
+
+    threading.Thread(target=serve, daemon=True).start()
+    return listener.getsockname()[1], cert_pem
+
+
+def _handshakes(context, group: str) -> bool:
+    import ssl
+    port, cert_pem = _tls_server(group)
+    context.load_verify_locations(cadata=cert_pem)
+    try:
+        with socket.create_connection(('127.0.0.1', port), timeout=5) as raw:
+            with context.wrap_socket(raw, server_hostname='localhost'):
+                return True
+    except (ssl.SSLError, OSError):
+        return False
+
+
+def test_core_tls_offers_only_x25519():
+    # A post-quantum key share makes the ClientHello big enough for some DPI to stall it.
+    from proxy import h2_transport, raw_websocket, utils
+
+    contexts = [utils.create_ssl_context(), h2_transport._default_ssl_context(),
+                raw_websocket._ssl_ctx, raw_websocket._ssl_ctx_fronting]
+    for context in contexts:
+        assert _handshakes(context, 'X25519')
+        assert not _handshakes(context, 'prime256v1')
