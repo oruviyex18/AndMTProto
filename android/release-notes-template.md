@@ -18,7 +18,7 @@ AndMTProto запускает на телефоне локальный MTProto-�
 
 AndMTProto прошёл проверку Google Play Защиты. Если Android всё же предупредит, что приложение установлено не из Google Play, нажмите **Подробнее** → **Всё равно установить**.
 
-**Обновление:**
+**Обновление:** кнопка **Проверить обновления** в AndMTProto открывает страницу последнего релиза — сравните его версию с указанной в приложении.
 - **С версии 1.11.2-android.2 или новее** — установите поверх, настройки сохранятся.
 - **С версии 1.11.2-android.1 или собранной самостоятельно debug-версии** — сначала удалите старую версию (она подписана другим ключом), затем установите новую. Настройки придётся задать заново.
 
@@ -72,7 +72,7 @@ SHA-256 сертификата подписи: `14:03:0C:3F:EE:D9:4B:9F:5F:21:CF
 
 {{CHANGES_EN}}
 
-**Install:** Android 7.0+, 64-bit ARM or x86_64. The app has passed Google Play Protect's review; if Android still warns it isn't from Google Play, tap **More details** → **Install anyway**. From 1.11.2-android.2 or newer, install over it (settings are kept). From 1.11.2-android.1 or a self-built debug APK, uninstall first (different signing key).
+**Install:** Android 7.0+, 64-bit ARM or x86_64. The app has passed Google Play Protect's review; if Android still warns it isn't from Google Play, tap **More details** → **Install anyway**. **Check for updates** in the app opens the latest release. From 1.11.2-android.2 or newer, install over it (settings are kept). From 1.11.2-android.1 or a self-built debug APK, uninstall first (different signing key).
 
 **Set up:** tap **Start**, then **Open in Telegram** → **Connect proxy**. Manually: Telegram → Settings → Data and Storage → Proxy Settings → Add Proxy → MTProto, server `127.0.0.1`, port `1443`, key from **Copy link**. Tap **Allow background work** and turn optimisation off for AndMTProto; on Xiaomi pick AndMTProto → background activity control → No restrictions, and enable Autostart. Optional: **Start on boot** and the Quick Settings tile.
 
