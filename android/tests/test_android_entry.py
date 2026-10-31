@@ -275,7 +275,8 @@ def test_counters_restart_from_zero(tmp_path):
     port = json.loads(cfg)["port"]
     try:
         assert android_entry.start(cfg, str(tmp_path)) is None
-        assert _wait(lambda: _listening(port))
+        # Not _listening(): its probe connection would be counted too.
+        assert _wait(lambda: json.loads(android_entry.status())["listening"])
         with socket.create_connection(("127.0.0.1", port)):
             pass
         assert _wait(lambda: json.loads(android_entry.status())["total"] == 1)

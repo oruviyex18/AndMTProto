@@ -60,7 +60,9 @@ only the summary and the list of changes are written for each release.
 
 1. In `app/build.gradle.kts`, raise `versionCode` by 1 and set `androidRevision`: back to 1
    when upstream's `__version__` changed since the last release, otherwise +1. Merge to `main`.
-   (After an upstream sync the sync PR already did this; don't bump again.)
+   (After an upstream sync the sync PR already did this; don't bump again.) Name a bump
+   commit pushed to `main` `Release <versionName>`, e.g. `Release 1.11.3-android.3`: CI
+   skips that branch run because the tag run in step 4 builds the same commit.
 2. Generate the notes from the repository root. This fills in the version, the previous release
    and the core version, and writes `android/build/release-notes.md` (not committed):
    ```bash
