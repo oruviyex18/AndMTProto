@@ -30,6 +30,8 @@ data class ProxyError(val code: String, val detail: String? = null, val suggeste
 
 data class ProxyStatus(
     val running: Boolean = false,
+    /** False while the core prepares before binding, e.g. probing the Fake TLS site. */
+    val listening: Boolean = false,
     val error: ProxyError? = null,
     val coreVersion: String = "",
     val active: Int = 0,
@@ -111,6 +113,7 @@ object ProxyCore {
         val o = JSONObject(module.callAttr("status").toString())
         return ProxyStatus(
             running = o.getBoolean("running"),
+            listening = o.getBoolean("listening"),
             error = if (o.isNull("error")) null else ProxyError.fromJson(o.getJSONObject("error")),
             coreVersion = o.getString("core_version"),
             active = o.getInt("active"),

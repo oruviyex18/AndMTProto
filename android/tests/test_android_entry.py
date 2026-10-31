@@ -164,79 +164,90 @@ def test_stop_right_after_start_frees_port(tmp_path):
 
 
 
-def _tls_server(group: str):
-    """A one-shot TLS 1.3 server on localhost offering one key-exchange group.
+def _probe_client_hello() -> bytes:
+    """The ClientHello upstream's Fake TLS probe sends, captured offline."""
+    import asyncio
+    from unittest.mock import AsyncMock, Mock, patch
 
-    Returns (port, cert_pem) so clients can trust the self-signed certificate.
-    """
-    import datetime
-    import ssl
-    import tempfile
-    import threading
+    from proxy import fake_tls
 
-    from cryptography import x509
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import ec
-    from cryptography.x509.oid import NameOID
-
-    key = ec.generate_private_key(ec.SECP256R1())
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, 'localhost')])
-    now = datetime.datetime.now(datetime.timezone.utc)
-    cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name)
-            .public_key(key.public_key()).serial_number(x509.random_serial_number())
-            .not_valid_before(now - datetime.timedelta(minutes=1))
-            .not_valid_after(now + datetime.timedelta(days=1))
-            .add_extension(x509.SubjectAlternativeName([x509.DNSName('localhost')]), critical=False)
-            .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
-            .sign(key, hashes.SHA256()))
-    cert_pem = cert.public_bytes(serialization.Encoding.PEM).decode()
-    with tempfile.NamedTemporaryFile('w', suffix='.pem', delete=False) as pem:
-        pem.write(cert_pem)
-        pem.write(key.private_bytes(serialization.Encoding.PEM,
-                                    serialization.PrivateFormat.PKCS8,
-                                    serialization.NoEncryption()).decode())
-
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    ctx.minimum_version = ssl.TLSVersion.TLSv1_3
-    ctx.load_cert_chain(pem.name)
-    ctx.set_ecdh_curve(group)
-    os.unlink(pem.name)
-
-    listener = socket.create_server(('127.0.0.1', 0))
-
-    def serve():
-        try:
-            conn, _ = listener.accept()
-            with ctx.wrap_socket(conn, server_side=True) as tls:
-                tls.recv(1)
-        except (ssl.SSLError, OSError):
-            pass
-        finally:
-            listener.close()
-
-    threading.Thread(target=serve, daemon=True).start()
-    return listener.getsockname()[1], cert_pem
-
-
-def _handshakes(context, group: str) -> bool:
-    import ssl
-    port, cert_pem = _tls_server(group)
-    context.load_verify_locations(cadata=cert_pem)
-    try:
-        with socket.create_connection(('127.0.0.1', port), timeout=5) as raw:
-            with context.wrap_socket(raw, server_hostname='localhost'):
-                return True
-    except (ssl.SSLError, OSError):
-        return False
+    reader = Mock(read=AsyncMock(return_value=b""))
+    writer = Mock(drain=AsyncMock())
+    with patch.object(fake_tls.asyncio, "open_connection",
+                      AsyncMock(return_value=(reader, writer))):
+        asyncio.run(fake_tls.probe_appdata_len("example.com", timeout=1))
+    return writer.write.call_args[0][0]
 
 
 def test_core_tls_offers_only_x25519():
-    # Upstream limits TLS to X25519 since 1.11.3 (android.6 patched this in the adapter):
-    # a post-quantum key share makes the ClientHello big enough for some DPI to stall it.
+    # Some ISPs' DPI stalls the ~1.5 KB ClientHello with a post-quantum key share
+    # (OpenSSL 3.5's default). Upstream limits TLS to X25519 since 1.11.3; android.6
+    # patched it in the adapter. Every TLS client in the core must offer X25519 only.
     from proxy import h2_transport, raw_websocket, utils
 
-    contexts = [utils.create_ssl_context(), h2_transport._default_ssl_context(),
-                raw_websocket._ssl_ctx, raw_websocket._ssl_ctx_fronting]
-    for context in contexts:
-        assert _handshakes(context, 'X25519')
-        assert not _handshakes(context, 'prime256v1')
+    hellos = [android_entry.client_hello(ctx) for ctx in (
+        utils.create_ssl_context(), utils.create_ssl_context(check_hostname=False),
+        h2_transport._default_ssl_context(),
+        raw_websocket._ssl_ctx, raw_websocket._ssl_ctx_fronting)]
+    hellos.append(_probe_client_hello())
+    for hello in hellos:
+        assert android_entry.offered_tls_groups(hello) == [0x001d]
+
+
+def test_offered_tls_groups_sees_post_quantum_default():
+    # The check must tell an unrestricted context apart (OpenSSL 3.x offers several groups).
+    import ssl
+    groups = android_entry.offered_tls_groups(
+        android_entry.client_hello(ssl.create_default_context()))
+    assert len(groups) > 1 and 0x001d in groups
+
+
+def _silent_tls_site():
+    """A local site that accepts TCP but never answers, like a DPI-stalled one."""
+    listener = socket.create_server(("127.0.0.1", 0))
+    return listener, listener.getsockname()[1]
+
+
+def test_stop_during_fake_tls_probe_is_fast_and_restart_works(tmp_path, monkeypatch):
+    # Upstream's _run() probes the Fake TLS site for up to 5 s before listening.
+    from proxy import fake_tls
+
+    listener, site_port = _silent_tls_site()
+    real_probe = fake_tls.probe_appdata_len
+    monkeypatch.setattr(
+        "proxy.tg_ws_proxy.probe_appdata_len",
+        lambda domain: real_probe("127.0.0.1", site_port))
+    try:
+        cfg = _cfg(fake_tls_domain="example.com")
+        port = json.loads(cfg)["port"]
+        assert android_entry.start(cfg, str(tmp_path)) is None
+        time.sleep(0.3)
+        status = json.loads(android_entry.status())
+        assert status["running"] and not status["listening"]
+        started = time.monotonic()
+        android_entry.stop()
+        assert time.monotonic() - started < 1.5
+        assert not json.loads(android_entry.status())["running"]
+        assert not _listening(port)
+
+        cfg2 = _cfg(fake_tls_domain="example.com")
+        port2 = json.loads(cfg2)["port"]
+        assert android_entry.start(cfg2, str(tmp_path)) is None
+        android_entry.stop()
+        assert not json.loads(android_entry.status())["running"]
+        assert not _listening(port2)
+    finally:
+        android_entry.stop()
+        listener.close()
+
+
+def test_status_reports_listening(tmp_path):
+    cfg = _cfg()
+    port = json.loads(cfg)["port"]
+    try:
+        assert android_entry.start(cfg, str(tmp_path)) is None
+        assert _wait(lambda: _listening(port))
+        assert _wait(lambda: json.loads(android_entry.status())["listening"])
+    finally:
+        android_entry.stop()
+    assert not json.loads(android_entry.status())["listening"]

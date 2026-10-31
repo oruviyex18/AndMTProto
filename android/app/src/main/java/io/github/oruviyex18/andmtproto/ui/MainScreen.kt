@@ -137,7 +137,13 @@ private fun StatusCard(
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
-                stringResource(if (status.running) R.string.status_running else R.string.status_stopped),
+                stringResource(
+                    when {
+                        !status.running -> R.string.status_stopped
+                        status.listening -> R.string.status_running
+                        else -> R.string.notif_starting
+                    }
+                ),
                 style = MaterialTheme.typography.titleLarge,
             )
             if (status.running) {

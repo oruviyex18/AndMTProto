@@ -58,7 +58,9 @@ Release notes are in Russian, with the installation and setup guide, and an Engl
 summary at the end. They come from [`release-notes-template.md`](release-notes-template.md);
 only the summary and the list of changes are written for each release.
 
-1. Bump `versionCode` and `androidRevision` in `app/build.gradle.kts` and merge to `main`.
+1. In `app/build.gradle.kts`, raise `versionCode` by 1 and set `androidRevision`: back to 1
+   when upstream's `__version__` changed since the last release, otherwise +1. Merge to `main`.
+   (After an upstream sync the sync PR already did this; don't bump again.)
 2. Generate the notes from the repository root. This fills in the version, the previous release
    and the core version, and writes `android/build/release-notes.md` (not committed):
    ```bash
@@ -94,20 +96,24 @@ When reviewing a sync PR:
    update `DEFAULT_CONFIG` and `_apply_config` in `android_entry.py`, then
    `ProxySettings.kt`, the settings form in `MainActivity.kt`, and both `strings.xml`.
 2. **`_run()` / `stop_event` or the lifecycle in `utils/tray_common.py` changed:**
-   update `start()`/`stop()` in `android_entry.py`.
-3. **TLS context code changed** (`create_ssl_context` / `set_x25519` in `proxy/utils.py`,
-   or a new TLS client): `test_core_tls_offers_only_x25519` must still pass. Upstream limits
-   the key exchange to X25519 because some ISPs' DPI stalls the large post-quantum
-   ClientHello; if that goes away, restore an adapter patch (see android.6, PR #8).
+   update `start()`/`stop()` in `android_entry.py`. `_run_until_stopped()` cancels a run that
+   is still preparing (e.g. the Fake TLS probe) when stop comes before the server listens;
+   check it still holds if `_run()` starts waiting on something new before `start_server`.
+3. **TLS code changed** (`create_ssl_context` / `set_x25519` in `proxy/utils.py`, the probe in
+   `proxy/fake_tls.py`, or any new TLS client): upstream limits the key exchange to X25519
+   because some ISPs' DPI stalls the large post-quantum ClientHello. Add every new TLS client
+   to `test_core_tls_offers_only_x25519`. On the device, `_check_core_tls()` logs an error at
+   start if the core's TLS offers more than X25519; if upstream drops the limit, restore an
+   adapter patch (see android.6, PR #8) that covers every client in that test.
 4. **New import or version pin in `pyproject.toml` that `proxy/` uses:** add it to
    `app/requirements.txt` (Chaquopy and CI both install from it). A native package needs an
    Android wheel from Chaquopy's index.
 5. **`icon.ico` changed:** regenerate the launcher and notification icons with
    `pip install Pillow && python android/tools/make_icons.py`, then commit `android/app/src/main/res`.
 6. **Only desktop files changed** (`windows.py`, `ui/`, `utils/`, packaging): nothing to do.
-7. Install the APK, connect Telegram, and check that chats and media load. Then bump
-   `versionCode` in `app/build.gradle.kts`, set `androidRevision` (back to 1 when
-   upstream's `__version__` changed, otherwise +1), and merge.
+7. Install the APK, connect Telegram, and check that chats and media load. Then set the
+   version as in [Releasing](#releasing) step 1 and merge with a merge commit (not squash),
+   so upstream's commits stay in `main`'s history.
    `versionName` follows upstream's `__version__` automatically.
 
 One-time setup on the fork: enable Actions, and allow GitHub Actions to create pull
