@@ -20,6 +20,13 @@ permissions:
 
 jobs:
   test:
+    # A version-bump commit ("Release 1.11.3-android.3") is built by its
+    # android-v* tag run, which publishes the release; skip the duplicate
+    # run for the same commit on the branch. build needs test, so it skips too.
+    if: >-
+      github.event_name != 'push' || github.ref_type == 'tag' ||
+      !(startsWith(github.event.head_commit.message, 'Release ') &&
+        contains(github.event.head_commit.message, '-android.'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
