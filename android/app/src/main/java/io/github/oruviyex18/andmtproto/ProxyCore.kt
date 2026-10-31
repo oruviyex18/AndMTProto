@@ -35,7 +35,9 @@ data class ProxyStatus(
     val error: ProxyError? = null,
     val coreVersion: String = "",
     val active: Int = 0,
+    /** Since the proxy last started. */
     val total: Int = 0,
+    val lastHour: Int = 0,
     val bytesUp: Long = 0,
     val bytesDown: Long = 0,
 )
@@ -118,6 +120,7 @@ object ProxyCore {
             coreVersion = o.getString("core_version"),
             active = o.getInt("active"),
             total = o.getInt("total"),
+            lastHour = o.getInt("last_hour"),
             bytesUp = o.getLong("bytes_up"),
             bytesDown = o.getLong("bytes_down"),
         ).also { _state.value = it }

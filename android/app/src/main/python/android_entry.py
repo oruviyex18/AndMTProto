@@ -15,6 +15,7 @@ port_in_use, permission, address, unknown.
 from __future__ import annotations
 
 import asyncio
+import collections
 import errno
 import json
 import logging
@@ -26,7 +27,8 @@ import ssl
 import struct
 import sys
 import threading
-from typing import Any, Dict, List, Optional, Tuple
+import time
+from typing import Any, Deque, Dict, List, Optional, Tuple
 
 from proxy import __version__
 from proxy.config import coerce_domain_list, parse_dc_ip_list, proxy_config
@@ -71,6 +73,12 @@ _stop_requested: Optional[threading.Event] = None
 # The running loop and its stop event, published by the proxy thread.
 _async_stop: Optional[Tuple[asyncio.AbstractEventLoop, asyncio.Event]] = None
 _last_error: Optional[Dict[str, Any]] = None
+# (monotonic time, stats.connections_total) samples for the last-hour count;
+# the first one is the newest sample at or before the start of the hour.
+_HOUR_S = 3600.0
+_SAMPLE_S = 10.0
+_samples: Deque[Tuple[float, int]] = collections.deque()
+_samples_lock = threading.Lock()
 _log_handler: Optional[logging.Handler] = None
 
 
@@ -211,6 +219,34 @@ def _run_proxy_thread(stop_requested: threading.Event) -> None:
                 _async_stop = None
 
 
+def _reset_stats(now: float) -> None:
+    """Counters start from zero on every start, not once per app process."""
+    stats.__init__()  # the core keeps references to this one object
+    with _samples_lock:
+        _samples.clear()
+        _samples.append((now, 0))
+
+
+def _record_sample(now: float) -> None:
+    with _samples_lock:
+        _samples.append((now, stats.connections_total))
+        while len(_samples) > 1 and _samples[1][0] <= now - _HOUR_S:
+            _samples.popleft()
+
+
+def _connections_last_hour() -> int:
+    """Connections opened in about the last hour (to within _SAMPLE_S)."""
+    with _samples_lock:
+        baseline = _samples[0][1] if _samples else 0
+    return stats.connections_total - baseline
+
+
+async def _sample_connections() -> None:
+    while True:
+        await asyncio.sleep(_SAMPLE_S)
+        _record_sample(time.monotonic())
+
+
 async def _run_until_stopped(stop_ev: asyncio.Event) -> None:
     """Runs upstream's _run(), cancelling it if stop comes before it listens.
 
@@ -221,6 +257,7 @@ async def _run_until_stopped(stop_ev: asyncio.Event) -> None:
     """
     run = asyncio.ensure_future(_run(stop_event=stop_ev))
     stopped = asyncio.ensure_future(stop_ev.wait())
+    sampler = asyncio.ensure_future(_sample_connections())
     try:
         await asyncio.wait({run, stopped}, return_when=asyncio.FIRST_COMPLETED)
         if not run.done() and tg_ws_proxy._server_instance is None:
@@ -233,6 +270,7 @@ async def _run_until_stopped(stop_ev: asyncio.Event) -> None:
                 raise
     finally:
         stopped.cancel()
+        sampler.cancel()
 
 
 def _describe_error(exc: BaseException) -> Dict[str, Any]:
@@ -338,6 +376,7 @@ def start(cfg_json: str, log_dir: str) -> Optional[str]:
         log.info("AndMTProto: core %s, Python %s",
                  __version__, sys.version.split()[0])
         _check_core_tls()
+        _reset_stats(time.monotonic())
         log.info("Starting proxy on %s:%d ...",
                  proxy_config.host, proxy_config.port)
         _stop_requested = threading.Event()
@@ -406,6 +445,7 @@ def status() -> str:
         "core_version": __version__,
         "active": stats.connections_active,
         "total": stats.connections_total,
+        "last_hour": _connections_last_hour(),
         "bytes_up": stats.bytes_up,
         "bytes_down": stats.bytes_down,
     })
