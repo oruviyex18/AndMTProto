@@ -10,7 +10,7 @@
 
     <string name="status_running">Proxy is running</string>
     <string name="status_stopped">Proxy is stopped</string>
-    <string name="status_stats">Connections — active: %1$d, total: %2$d · ↑ %3$s ↓ %4$s</string>
+    <string name="status_stats">Connections — active: %1$d, last hour: %2$d, since start: %3$d · ↑ %4$s ↓ %5$s</string>
     <string name="core_version">Proxy core %1$s · app %2$s</string>
     <string name="check_updates">Check for updates</string>
     <string name="latest_release_url" translatable="false">https://github.com/oruviyex18/AndMTProto/releases/latest</string>

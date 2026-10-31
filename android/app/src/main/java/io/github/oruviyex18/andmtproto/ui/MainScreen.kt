@@ -149,7 +149,7 @@ private fun StatusCard(
             if (status.running) {
                 Text(
                     stringResource(
-                        R.string.status_stats, status.active, status.total,
+                        R.string.status_stats, status.active, status.lastHour, status.total,
                         Formatter.formatShortFileSize(context, status.bytesUp),
                         Formatter.formatShortFileSize(context, status.bytesDown),
                     )

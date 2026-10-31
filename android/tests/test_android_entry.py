@@ -251,3 +251,35 @@ def test_status_reports_listening(tmp_path):
     finally:
         android_entry.stop()
     assert not json.loads(android_entry.status())["listening"]
+
+
+def test_connections_last_hour_window():
+    from proxy.stats import stats
+
+    android_entry._reset_stats(now=0.0)
+    for minute, total in ((10, 5), (40, 12), (70, 20), (100, 26)):
+        stats.connections_total = total
+        android_entry._record_sample(now=minute * 60.0)
+    # At 100 min the hour starts at 40 min, when the total was 12.
+    assert android_entry._connections_last_hour() == 26 - 12
+    android_entry._reset_stats(now=0.0)
+    assert stats.connections_total == 0
+    assert android_entry._connections_last_hour() == 0
+
+
+def test_counters_restart_from_zero(tmp_path):
+    from proxy.stats import stats
+
+    stats.connections_total, stats.bytes_down = 1533, 10 ** 6
+    cfg = _cfg()
+    port = json.loads(cfg)["port"]
+    try:
+        assert android_entry.start(cfg, str(tmp_path)) is None
+        assert _wait(lambda: _listening(port))
+        with socket.create_connection(("127.0.0.1", port)):
+            pass
+        assert _wait(lambda: json.loads(android_entry.status())["total"] == 1)
+        status = json.loads(android_entry.status())
+        assert status["last_hour"] == 1 and status["bytes_down"] == 0
+    finally:
+        android_entry.stop()
