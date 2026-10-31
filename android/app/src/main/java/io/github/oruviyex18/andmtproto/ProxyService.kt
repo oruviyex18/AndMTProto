@@ -61,16 +61,16 @@ class ProxyService : Service() {
             return
         }
         delay(STARTUP_POLL_MS)
-        var shownActive = -1
+        var shown: ProxyStatus? = null
         while (true) {
             val status = ProxyCore.poll()
             if (!status.running) {
                 stopSelf()  // bind error or crash; the error stays in ProxyCore.state
                 return
             }
-            if (status.active != shownActive) {
+            if (status.active != shown?.active || status.listening != shown.listening) {
                 notify(buildNotification(status))
-                shownActive = status.active
+                shown = status
             }
             delay(POLL_MS)
         }
@@ -100,7 +100,7 @@ class ProxyService : Service() {
             this, 1, Intent(this, ProxyService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE
         )
-        val text = if (status?.running == true) {
+        val text = if (status?.running == true && status.listening) {
             getString(R.string.notif_running, settings.host, settings.port, status.active)
         } else {
             getString(R.string.notif_starting)

@@ -20,15 +20,19 @@ import json
 import logging
 import logging.handlers
 import os
+import functools
 import socket
+import ssl
+import struct
 import sys
 import threading
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from proxy import __version__
 from proxy.config import coerce_domain_list, parse_dc_ip_list, proxy_config
 from proxy.stats import stats
 from proxy import tg_ws_proxy
+from proxy import utils as proxy_utils
 from proxy.tg_ws_proxy import _run
 from proxy.utils import DomainCensorFilter, get_link_host
 
@@ -189,7 +193,7 @@ def _run_proxy_thread(stop_requested: threading.Event) -> None:
         if stop_requested.is_set():
             stop_ev.set()  # stop() came before the loop existed
     try:
-        loop.run_until_complete(_run(stop_event=stop_ev))
+        loop.run_until_complete(_run_until_stopped(stop_ev))
     except Exception as exc:
         log.error("Proxy thread crashed: %s", repr(exc))
         _last_error = _describe_error(exc)
@@ -205,6 +209,30 @@ def _run_proxy_thread(stop_requested: threading.Event) -> None:
         with _lock:
             if _async_stop is not None and _async_stop[0] is loop:
                 _async_stop = None
+
+
+async def _run_until_stopped(stop_ev: asyncio.Event) -> None:
+    """Runs upstream's _run(), cancelling it if stop comes before it listens.
+
+    _run() only watches stop_ev once its server is up, but since 1.11.3 it
+    first probes the Fake TLS site for up to 5 s, as long as stop()'s whole
+    budget. Before the listener exists there is nothing to shut down cleanly,
+    so cancelling is safe and keeps stop() and restarts fast.
+    """
+    run = asyncio.ensure_future(_run(stop_event=stop_ev))
+    stopped = asyncio.ensure_future(stop_ev.wait())
+    try:
+        await asyncio.wait({run, stopped}, return_when=asyncio.FIRST_COMPLETED)
+        if not run.done() and tg_ws_proxy._server_instance is None:
+            log.info("Stopping before the proxy started listening")
+            run.cancel()
+        try:
+            await run
+        except asyncio.CancelledError:
+            if not stop_ev.is_set():
+                raise
+    finally:
+        stopped.cancel()
 
 
 def _describe_error(exc: BaseException) -> Dict[str, Any]:
@@ -235,6 +263,58 @@ def _is_running() -> bool:
     return _proxy_thread is not None and _proxy_thread.is_alive()
 
 
+_TLS_GROUP_X25519 = 0x001d
+_EXT_SUPPORTED_GROUPS = 0x000a
+
+
+def offered_tls_groups(client_hello: bytes) -> List[int]:
+    """The supported_groups list of a TLS ClientHello record, [] if absent."""
+    pos = 5 + 4 + 2 + 32  # record and handshake headers, version, random
+    pos += 1 + client_hello[pos]  # session id
+    pos += 2 + struct.unpack_from(">H", client_hello, pos)[0]  # cipher suites
+    pos += 1 + client_hello[pos]  # compression methods
+    end = pos + 2 + struct.unpack_from(">H", client_hello, pos)[0]
+    pos += 2
+    while pos + 4 <= end:
+        ext_type, ext_len = struct.unpack_from(">HH", client_hello, pos)
+        pos += 4
+        if ext_type == _EXT_SUPPORTED_GROUPS:
+            count = struct.unpack_from(">H", client_hello, pos)[0] // 2
+            return list(struct.unpack_from(f">{count}H", client_hello, pos + 2))
+        pos += ext_len
+    return []
+
+
+def client_hello(context: ssl.SSLContext) -> bytes:
+    """The first ClientHello `context` would send, built without a network."""
+    outgoing = ssl.MemoryBIO()
+    tls = context.wrap_bio(ssl.MemoryBIO(), outgoing, server_hostname="example.com")
+    try:
+        tls.do_handshake()
+    except ssl.SSLWantReadError:
+        pass
+    return outgoing.read()
+
+
+@functools.lru_cache(maxsize=1)
+def _check_core_tls() -> None:
+    """Logs an error if the core's TLS offers more than X25519.
+
+    Some ISPs' DPI stalls the large post-quantum ClientHello that OpenSSL 3.5
+    sends by default (android.6). Upstream limits its contexts to X25519 since
+    1.11.3 but ignores failures, so check the result on the device itself.
+    """
+    try:
+        groups = offered_tls_groups(client_hello(proxy_utils.create_ssl_context()))
+    except Exception as exc:
+        log.error("Cannot check the core's TLS key exchange: %r", exc)
+        return
+    if groups != [_TLS_GROUP_X25519]:
+        log.error("Core TLS offers key exchange groups %s, not X25519 only; "
+                  "connections may stall on ISPs that block large handshakes",
+                  [f"0x{g:04x}" for g in groups])
+
+
 def start(cfg_json: str, log_dir: str) -> Optional[str]:
     """Start the proxy in a background thread.
 
@@ -257,6 +337,7 @@ def start(cfg_json: str, log_dir: str) -> Optional[str]:
         _last_error = None
         log.info("AndMTProto: core %s, Python %s",
                  __version__, sys.version.split()[0])
+        _check_core_tls()
         log.info("Starting proxy on %s:%d ...",
                  proxy_config.host, proxy_config.port)
         _stop_requested = threading.Event()
@@ -319,6 +400,8 @@ def _abort_lingering_clients() -> None:
 def status() -> str:
     return json.dumps({
         "running": _is_running(),
+        # False while _run() prepares (e.g. the Fake TLS probe) before binding.
+        "listening": tg_ws_proxy._server_instance is not None,
         "error": _last_error,
         "core_version": __version__,
         "active": stats.connections_active,

@@ -46,7 +46,7 @@ jobs:
 
           # Files the Android adapter mirrors; changes here need a manual look.
           git diff --stat HEAD...upstream/main -- \
-            proxy/config.py proxy/tg_ws_proxy.py proxy/__init__.py \
+            proxy/config.py proxy/tg_ws_proxy.py proxy/__init__.py             proxy/utils.py proxy/fake_tls.py \
             utils/tray_common.py utils/default_config.py pyproject.toml icon.ico \
             > coupling.txt
           git checkout -b "$branch"
@@ -103,7 +103,7 @@ jobs:
               echo "None changed."
             fi
             echo
-            echo "Before merging: smoke-test the APK in Telegram, then bump versionCode / androidRevision."
+            echo "Before merging: smoke-test the APK in Telegram, then set the version as in android/README.md (Releasing, step 1: versionCode +1, androidRevision back to 1 for a new upstream version). Merge with a merge commit, not squash."
           } > body.md
           gh pr create --base main --head "$BRANCH" \
             --title "Sync upstream tg-ws-proxy $VERSION" --body-file body.md
