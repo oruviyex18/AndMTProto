@@ -284,3 +284,56 @@ def test_counters_restart_from_zero(tmp_path):
         assert status["last_hour"] == 1 and status["bytes_down"] == 0
     finally:
         android_entry.stop()
+
+
+def test_secret_not_in_log(tmp_path):
+    secret = "fedcba9876543210fedcba9876543210"
+    cfg = _cfg(secret=secret)
+    assert android_entry.start(cfg, str(tmp_path)) is None
+    try:
+        # The core logs the secret and the tg:// link once it listens.
+        assert _wait(lambda: json.loads(android_entry.status())["listening"])
+    finally:
+        android_entry.stop()
+    handler = android_entry._log_handler  # opened by the first start in this process
+    handler.flush()
+    with open(handler.baseFilename, encoding="utf-8") as f:
+        text = f.read()
+    assert secret not in text.lower()
+    assert "Secret:        <secret>" in text and "secret=dd<secret>" in text
+    # The app still gets the real link for Telegram.
+    assert secret in android_entry.proxy_link(cfg)
+
+
+def test_secret_filter_ignores_case_and_args():
+    android_entry.proxy_config.secret = "0123456789abcdef0123456789abcdef"
+    record = android_entry.logging.LogRecord(
+        "t", android_entry.logging.INFO, __file__, 1,
+        "secret %s and %s", ("0123456789ABCDEF0123456789ABCDEF", 42), None)
+    assert android_entry.SecretCensorFilter().filter(record)
+    assert record.getMessage() == "secret <secret> and 42"
+
+
+def test_is_loopback():
+    for host in ("127.0.0.1", "127.1.2.3", "localhost", " LOCALHOST ", "::1"):
+        assert android_entry._is_loopback(host), host
+    for host in ("0.0.0.0", "", "::", "192.168.1.10", "10.0.0.1", "example.com"):
+        assert not android_entry._is_loopback(host), host
+
+
+def test_scrub_logged_secrets(tmp_path):
+    old = tmp_path / "proxy.log"
+    old.write_text(
+        "10:00:00  INFO     Secret:        0123456789abcdef0123456789abcdef\n"
+        "10:00:00  INFO       tg://proxy?server=127.0.0.1&port=1443"
+        "&secret=dd0123456789ABCDEF0123456789abcdef\n"
+        "10:00:00  INFO       tg://proxy?server=127.0.0.1&port=1443"
+        "&secret=ee0123456789abcdef0123456789abcdef6578616d706c652e636f6d\n"
+        "10:00:01  INFO   cf_ray=a53b5828caddfbc4 kept\n", encoding="utf-8")
+    android_entry._scrub_logged_secrets(str(old))
+    text = old.read_text(encoding="utf-8")
+    assert "0123456789" not in text.lower()
+    assert "Secret:        <secret>" in text and "secret=dd<secret>\n" in text
+    assert "secret=ee<secret>6578616d706c652e636f6d" in text  # domain hex isn't secret
+    assert "cf_ray=a53b5828caddfbc4 kept" in text
+    android_entry._scrub_logged_secrets(str(tmp_path / "missing.log"))  # no error

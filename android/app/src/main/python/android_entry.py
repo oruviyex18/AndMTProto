@@ -21,7 +21,9 @@ import json
 import logging
 import logging.handlers
 import os
+import re
 import functools
+import ipaddress
 import socket
 import ssl
 import struct
@@ -80,6 +82,49 @@ _SAMPLE_S = 10.0
 _samples: Deque[Tuple[float, int]] = collections.deque()
 _samples_lock = threading.Lock()
 _log_handler: Optional[logging.Handler] = None
+
+
+class SecretCensorFilter(logging.Filter):
+    """Hides the proxy secret, which the core logs at start (alone and in the
+    tg:// links). The link stays available through proxy_link()."""
+
+    def filter(self, record):
+        message = record.getMessage()
+        secret = proxy_config.secret
+        if secret:
+            message = re.sub(re.escape(secret), "<secret>", message,
+                             flags=re.IGNORECASE)
+        record.msg = message
+        record.args = ()
+        return True
+
+
+# How the core logs the secret; versions up to 1.11.4-android.1 kept it in the log.
+_LOGGED_SECRET = re.compile(r"(Secret:\s+|secret=(?:dd|ee))[0-9a-fA-F]{32}")
+
+
+def _scrub_logged_secrets(path: str) -> None:
+    """Hide secrets that older versions wrote to an existing log file."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+        scrubbed = _LOGGED_SECRET.sub(r"\1<secret>", text)
+        if scrubbed != text:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(scrubbed)
+    except OSError:
+        pass
+
+
+def _is_loopback(host: str) -> bool:
+    """True if only apps on this device can connect to `host`."""
+    host = host.strip()
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 class ConfigError(ValueError):
@@ -174,6 +219,8 @@ def _setup_logging(log_dir: str, cfg: Dict[str, Any]) -> None:
     fmt = logging.Formatter('%(asctime)s  %(levelname)-5s  %(message)s',
                             datefmt='%H:%M:%S')
     os.makedirs(log_dir, exist_ok=True)
+    for name in ('proxy.log', 'proxy.log.1'):
+        _scrub_logged_secrets(os.path.join(log_dir, name))
     fh = logging.handlers.RotatingFileHandler(
         os.path.join(log_dir, 'proxy.log'),
         maxBytes=int(float(cfg["log_max_mb"]) * 1024 * 1024),
@@ -183,6 +230,7 @@ def _setup_logging(log_dir: str, cfg: Dict[str, Any]) -> None:
     for h in (fh, console):
         h.setFormatter(fmt)
         h.addFilter(DomainCensorFilter())
+        h.addFilter(SecretCensorFilter())
         root.addHandler(h)
     for name in ('asyncio', 'httpx', 'httpcore'):
         logging.getLogger(name).setLevel(logging.WARNING)
@@ -379,6 +427,10 @@ def start(cfg_json: str, log_dir: str) -> Optional[str]:
         _reset_stats(time.monotonic())
         log.info("Starting proxy on %s:%d ...",
                  proxy_config.host, proxy_config.port)
+        if not _is_loopback(proxy_config.host):
+            log.warning("%s is not a loopback address: other devices on the "
+                        "network can connect, and anyone with the secret can "
+                        "use the proxy", proxy_config.host)
         _stop_requested = threading.Event()
         _proxy_thread = threading.Thread(
             target=_run_proxy_thread, args=(_stop_requested,),
