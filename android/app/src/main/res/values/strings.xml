@@ -36,6 +36,7 @@
 
     <string name="settings">Settings</string>
     <string name="host">Listen address</string>
+    <string name="host_exposed">Not 127.0.0.1: other devices on your network (for example, public Wi-Fi) can connect to the proxy, and anyone who learns the secret can use your connection. Keep 127.0.0.1 unless you need this.</string>
     <string name="port">Port</string>
     <string name="secret">Secret (32 hex characters)</string>
     <string name="new_secret">New</string>

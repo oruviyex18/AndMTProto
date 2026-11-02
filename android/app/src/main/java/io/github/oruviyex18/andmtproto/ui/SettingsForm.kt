@@ -20,6 +20,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.github.oruviyex18.andmtproto.ProxySettings
 import io.github.oruviyex18.andmtproto.R
+import io.github.oruviyex18.andmtproto.isLoopbackHost
 
 /**
  * Settings being edited. Fields typed as text that must become numbers or a
@@ -67,6 +68,13 @@ fun SettingsForm(draft: SettingsDraft, onChange: (SettingsDraft) -> Unit) {
         Field(s.host, R.string.host, Modifier.weight(2f)) { v -> edit { copy(host = v) } }
         Spacer(Modifier.width(8.dp))
         Field(draft.port, R.string.port, Modifier.weight(1f), number = true) { onChange(draft.copy(port = it)) }
+    }
+    if (!isLoopbackHost(s.host)) {
+        Text(
+            stringResource(R.string.host_exposed),
+            color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Field(s.secret, R.string.secret, Modifier.weight(1f)) { v -> edit { copy(secret = v) } }

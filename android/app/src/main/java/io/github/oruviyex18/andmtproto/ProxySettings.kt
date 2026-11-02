@@ -7,6 +7,18 @@ import org.json.JSONObject
 import java.security.SecureRandom
 
 /**
+ * True if only apps on this phone can connect to [host]. Same rule as _is_loopback
+ * in android_entry.py; literal addresses only, so it never does a DNS lookup.
+ */
+fun isLoopbackHost(host: String): Boolean {
+    val h = host.trim().lowercase()
+    if (h == "localhost" || h == "::1" || h == "0:0:0:0:0:0:0:1") return true
+    val parts = h.split(".")
+    return parts.size == 4 && parts[0] == "127" &&
+        parts.all { p -> p.isNotEmpty() && p.all(Char::isDigit) && p.length <= 3 && p.toInt() <= 255 }
+}
+
+/**
  * User settings. [toJson] uses the same keys as the desktop tray config
  * (utils/default_config.py) so android_entry.py can map them 1:1 to ProxyConfig.
  */

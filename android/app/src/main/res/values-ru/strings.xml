@@ -33,6 +33,7 @@
 
     <string name="settings">Настройки</string>
     <string name="host">Адрес прослушивания</string>
+    <string name="host_exposed">Адрес не 127.0.0.1: к прокси смогут подключиться другие устройства в вашей сети (например, в общественном Wi-Fi), а любой, кто узнает секрет, сможет пользоваться вашим подключением. Оставьте 127.0.0.1, если это не нужно.</string>
     <string name="port">Порт</string>
     <string name="secret">Секрет (32 hex-символа)</string>
     <string name="new_secret">Новый</string>
