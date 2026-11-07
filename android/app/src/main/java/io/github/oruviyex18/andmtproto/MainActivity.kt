@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import io.github.oruviyex18.andmtproto.ui.AppTheme
-import io.github.oruviyex18.andmtproto.ui.MainScreen
+import io.github.oruviyex18.andmtproto.ui.AppRoot
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -18,7 +18,7 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) handleIntent(intent)
         setContent {
             AppTheme {
-                Surface(Modifier.fillMaxSize()) { MainScreen() }
+                Surface(Modifier.fillMaxSize()) { AppRoot() }
             }
         }
     }

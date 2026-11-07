@@ -515,6 +515,12 @@ def status() -> str:
         "total": stats.connections_total,
         "last_hour": _connections_last_hour(),
         "bad_recent": _bad_handshakes_recent(time.monotonic()),
+        # Routes since start, for the UI's route chips; "routed" > 0 means a
+        # client got past the handshake, i.e. Telegram uses this proxy.
+        "ws": stats.connections_ws,
+        "cf": stats.connections_cfproxy + stats.connections_h2,
+        "routed": (stats.connections_ws + stats.connections_cfproxy
+                   + stats.connections_h2 + stats.connections_tcp_fallback),
         "bytes_up": stats.bytes_up,
         "bytes_down": stats.bytes_down,
     })

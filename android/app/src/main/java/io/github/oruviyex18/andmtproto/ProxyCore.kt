@@ -40,6 +40,11 @@ data class ProxyStatus(
     val lastHour: Int = 0,
     /** Handshakes rejected for a wrong secret in about the last 10 minutes. */
     val badRecent: Int = 0,
+    /** Connections since start that went over WebSocket / Cloudflare (CF proxy and H2). */
+    val ws: Int = 0,
+    val cf: Int = 0,
+    /** Connections that got past the handshake: Telegram is using this proxy. */
+    val routed: Int = 0,
     val bytesUp: Long = 0,
     val bytesDown: Long = 0,
 )
@@ -124,6 +129,9 @@ object ProxyCore {
             total = o.getInt("total"),
             lastHour = o.getInt("last_hour"),
             badRecent = o.getInt("bad_recent"),
+            ws = o.getInt("ws"),
+            cf = o.getInt("cf"),
+            routed = o.getInt("routed"),
             bytesUp = o.getLong("bytes_up"),
             bytesDown = o.getLong("bytes_down"),
         ).also { _state.value = it }

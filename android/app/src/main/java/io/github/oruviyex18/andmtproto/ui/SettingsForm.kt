@@ -1,6 +1,16 @@
 package io.github.oruviyex18.andmtproto.ui
 
 import androidx.annotation.StringRes
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -59,61 +69,125 @@ data class SettingsDraft(
     }
 }
 
+/**
+ * The settings, grouped from everyday to rare: connection, route, masking, app,
+ * and a collapsed "advanced" group. [onShowLink] opens the Telegram link sheet.
+ */
 @Composable
-fun SettingsForm(draft: SettingsDraft, onChange: (SettingsDraft) -> Unit) {
+fun SettingsForm(draft: SettingsDraft, onChange: (SettingsDraft) -> Unit, onShowLink: () -> Unit) {
     val s = draft.settings
     fun edit(change: ProxySettings.() -> ProxySettings) = onChange(draft.edit(change))
 
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Field(s.host, R.string.host, Modifier.weight(2f)) { v -> edit { copy(host = v) } }
-        Spacer(Modifier.width(8.dp))
-        Field(draft.port, R.string.port, Modifier.weight(1f), number = true) { onChange(draft.copy(port = it)) }
+    Section(R.string.section_connection) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Field(s.host, R.string.host, Modifier.weight(2f)) { v -> edit { copy(host = v) } }
+            Spacer(Modifier.width(8.dp))
+            Field(draft.port, R.string.port, Modifier.weight(1f), number = true) { onChange(draft.copy(port = it)) }
+        }
+        if (!isLoopbackHost(s.host)) {
+            Text(
+                stringResource(R.string.host_exposed),
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        SecretField(s.secret, onChange = { v -> edit { copy(secret = v) } },
+            onNew = { edit { copy(secret = ProxySettings.newSecret()) } })
+        LinkRow(onShowLink)
     }
-    if (!isLoopbackHost(s.host)) {
-        Text(
-            stringResource(R.string.host_exposed),
-            color = MaterialTheme.colorScheme.error,
-            style = MaterialTheme.typography.bodySmall,
+    Section(R.string.section_route) {
+        OutlinedTextField(
+            value = draft.dcIp, onValueChange = { onChange(draft.copy(dcIp = it)) },
+            label = { Text(stringResource(R.string.dc_ip)) },
+            supportingText = { Text(stringResource(R.string.dc_ip_hint)) },
+            minLines = 2, modifier = Modifier.fillMaxWidth(),
         )
+        Toggle(s.cfproxy, R.string.cfproxy) { v -> edit { copy(cfproxy = v) } }
+        Toggle(s.h2, R.string.h2) { v -> edit { copy(h2 = v) } }
+        Toggle(s.cfUserDomainEnabled, R.string.cf_user_enabled) { v -> edit { copy(cfUserDomainEnabled = v) } }
+        if (s.cfUserDomainEnabled) {
+            Field(s.cfUserDomains, R.string.cf_user_domains, Modifier.fillMaxWidth()) { v -> edit { copy(cfUserDomains = v) } }
+        }
+        Toggle(s.cfWorkerEnabled, R.string.cf_worker_enabled) { v -> edit { copy(cfWorkerEnabled = v) } }
+        if (s.cfWorkerEnabled) {
+            Field(s.cfWorkerDomains, R.string.cf_worker_domains, Modifier.fillMaxWidth()) { v -> edit { copy(cfWorkerDomains = v) } }
+        }
+        if (s.cfproxy && !s.cfUserDomainEnabled && !s.cfWorkerEnabled) CfHint()
     }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Field(s.secret, R.string.secret, Modifier.weight(1f)) { v -> edit { copy(secret = v) } }
-        TextButton(onClick = { edit { copy(secret = ProxySettings.newSecret()) } }) {
-            Text(stringResource(R.string.new_secret))
+    Section(R.string.section_masking) {
+        Field(s.fakeTlsDomain, R.string.fake_tls, Modifier.fillMaxWidth()) { v -> edit { copy(fakeTlsDomain = v) } }
+    }
+    Section(R.string.section_app) {
+        Toggle(s.startOnBoot, R.string.start_on_boot) { v -> edit { copy(startOnBoot = v) } }
+        Toggle(s.checkUpdates, R.string.check_updates_daily) { v -> edit { copy(checkUpdates = v) } }
+    }
+    var advanced by rememberSaveable { mutableStateOf(false) }
+    TextButton(onClick = { advanced = !advanced }) {
+        Text(stringResource(if (advanced) R.string.advanced_hide else R.string.advanced_show))
+    }
+    if (advanced) {
+        Section(R.string.section_advanced) {
+            Row {
+                Field(draft.poolSize, R.string.pool_size, Modifier.weight(1f), number = true) {
+                    onChange(draft.copy(poolSize = it))
+                }
+                Spacer(Modifier.width(8.dp))
+                Field(draft.bufKb, R.string.buf_kb, Modifier.weight(1f), number = true) {
+                    onChange(draft.copy(bufKb = it))
+                }
+            }
+            Toggle(s.noSecure, R.string.no_secure) { v -> edit { copy(noSecure = v) } }
+            Toggle(s.forceTestDc, R.string.force_test_dc) { v -> edit { copy(forceTestDc = v) } }
+            Toggle(s.verbose, R.string.verbose) { v -> edit { copy(verbose = v) } }
         }
     }
+}
+
+@Composable
+private fun Section(@StringRes title: Int, content: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            stringResource(title).uppercase(),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(top = 12.dp),
+        )
+        content()
+    }
+}
+
+/** The secret, hidden by default so screenshots of the settings don't leak it. */
+@Composable
+private fun SecretField(secret: String, onChange: (String) -> Unit, onNew: () -> Unit) {
+    var visible by rememberSaveable { mutableStateOf(false) }
     OutlinedTextField(
-        value = draft.dcIp, onValueChange = { onChange(draft.copy(dcIp = it)) },
-        label = { Text(stringResource(R.string.dc_ip)) },
-        supportingText = { Text(stringResource(R.string.dc_ip_hint)) },
-        minLines = 2, modifier = Modifier.fillMaxWidth(),
+        value = secret, onValueChange = onChange, singleLine = true,
+        label = { Text(stringResource(R.string.secret)) },
+        visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+        modifier = Modifier.fillMaxWidth(),
     )
     Row {
-        Field(draft.poolSize, R.string.pool_size, Modifier.weight(1f), number = true) {
-            onChange(draft.copy(poolSize = it))
+        TextButton(onClick = { visible = !visible }) {
+            Text(stringResource(if (visible) R.string.secret_hide else R.string.secret_show))
         }
-        Spacer(Modifier.width(8.dp))
-        Field(draft.bufKb, R.string.buf_kb, Modifier.weight(1f), number = true) {
-            onChange(draft.copy(bufKb = it))
+        TextButton(onClick = onNew) { Text(stringResource(R.string.new_secret)) }
+    }
+}
+
+@Composable
+private fun LinkRow(onClick: () -> Unit) {
+    Surface(onClick = onClick, shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceVariant) {
+        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(stringResource(R.string.link_row_title), style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    stringResource(R.string.link_row_body), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text("›", style = MaterialTheme.typography.titleLarge)
         }
     }
-    Toggle(s.cfproxy, R.string.cfproxy) { v -> edit { copy(cfproxy = v) } }
-    Toggle(s.h2, R.string.h2) { v -> edit { copy(h2 = v) } }
-    Toggle(s.cfUserDomainEnabled, R.string.cf_user_enabled) { v -> edit { copy(cfUserDomainEnabled = v) } }
-    if (s.cfUserDomainEnabled) {
-        Field(s.cfUserDomains, R.string.cf_user_domains, Modifier.fillMaxWidth()) { v -> edit { copy(cfUserDomains = v) } }
-    }
-    Toggle(s.cfWorkerEnabled, R.string.cf_worker_enabled) { v -> edit { copy(cfWorkerEnabled = v) } }
-    if (s.cfWorkerEnabled) {
-        Field(s.cfWorkerDomains, R.string.cf_worker_domains, Modifier.fillMaxWidth()) { v -> edit { copy(cfWorkerDomains = v) } }
-    }
-    if (s.cfproxy && !s.cfUserDomainEnabled && !s.cfWorkerEnabled) CfHint()
-    Field(s.fakeTlsDomain, R.string.fake_tls, Modifier.fillMaxWidth()) { v -> edit { copy(fakeTlsDomain = v) } }
-    Toggle(s.noSecure, R.string.no_secure) { v -> edit { copy(noSecure = v) } }
-    Toggle(s.forceTestDc, R.string.force_test_dc) { v -> edit { copy(forceTestDc = v) } }
-    Toggle(s.verbose, R.string.verbose) { v -> edit { copy(verbose = v) } }
-    Toggle(s.startOnBoot, R.string.start_on_boot) { v -> edit { copy(startOnBoot = v) } }
-    Toggle(s.checkUpdates, R.string.check_updates_daily) { v -> edit { copy(checkUpdates = v) } }
 }
 
 /**

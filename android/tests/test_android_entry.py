@@ -248,6 +248,9 @@ def test_status_reports_listening(tmp_path):
         assert android_entry.start(cfg, str(tmp_path)) is None
         assert _wait(lambda: _listening(port))
         assert _wait(lambda: json.loads(android_entry.status())["listening"])
+        st = json.loads(android_entry.status())
+        # Nothing routed yet: the readiness probe sends no handshake.
+        assert (st["ws"], st["cf"], st["routed"]) == (0, 0, 0)
     finally:
         android_entry.stop()
     assert not json.loads(android_entry.status())["listening"]

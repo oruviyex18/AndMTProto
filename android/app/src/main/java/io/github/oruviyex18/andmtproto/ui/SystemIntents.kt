@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
+import androidx.annotation.StringRes
 import androidx.core.net.toUri
 import io.github.oruviyex18.andmtproto.R
 
@@ -33,10 +34,10 @@ internal fun Context.toast(text: String) {
     Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
 }
 
-internal fun Context.copyToClipboard(text: String) {
+internal fun Context.copyToClipboard(text: String, @StringRes copied: Int = R.string.link_copied) {
     getSystemService(ClipboardManager::class.java)
         .setPrimaryClip(ClipData.newPlainText("AndMTProto", text))
-    toast(R.string.link_copied)
+    toast(copied)
 }
 
 /** Opens [url] in a browser, or copies it when there is none. */
