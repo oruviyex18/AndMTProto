@@ -53,21 +53,29 @@ object UpdateCheck {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit { putString(KEY_DISMISSED, version) }
     }
 
-    /** Starts the daily job, or cancels it when [enabled] is false. */
+    /**
+     * Starts the daily job, or cancels it when [enabled] is false. Called from
+     * App.onCreate, so a JobScheduler failure is logged instead of crashing the app.
+     */
     fun schedule(context: Context, enabled: Boolean) {
-        val scheduler = context.getSystemService(JobScheduler::class.java)
-        if (!enabled) {
-            scheduler.cancel(JOB_ID)
-            return
+        try {
+            val scheduler = context.getSystemService(JobScheduler::class.java)
+            if (!enabled) {
+                scheduler.cancel(JOB_ID)
+                return
+            }
+            // Rescheduling would restart the period, so keep an existing job.
+            if (scheduler.getPendingJob(JOB_ID) != null) return
+            val job = JobInfo.Builder(JOB_ID, ComponentName(context, UpdateCheckJob::class.java))
+                .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
+                .setPeriodic(TimeUnit.DAYS.toMillis(1))
+                .setPersisted(true)
+                .build()
+            scheduler.schedule(job)
+        } catch (e: RuntimeException) {
+            // E.g. SecurityException on Android 16 without ACCESS_NETWORK_STATE.
+            Log.w(TAG, "Could not schedule the update check", e)
         }
-        // Rescheduling would restart the period, so keep an existing job.
-        if (scheduler.getPendingJob(JOB_ID) != null) return
-        val job = JobInfo.Builder(JOB_ID, ComponentName(context, UpdateCheckJob::class.java))
-            .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
-            .setPeriodic(TimeUnit.DAYS.toMillis(1))
-            .setPersisted(true)
-            .build()
-        scheduler.schedule(job)
     }
 
     /** Fetches the latest release and notifies if it is newer; throws [IOException] on network errors. */
