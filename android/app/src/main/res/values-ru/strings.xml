@@ -8,7 +8,7 @@
 
     <string name="status_running">Прокси работает</string>
     <string name="status_stopped">Прокси остановлен</string>
-    <string name="stale_proxy_hint">В Telegram добавлено несколько прокси AndMTProto, или некоторые из них устарели. Удалите лишние прокси в Telegram (Настройки → Данные и память → Настройки прокси) и отключите «Автопереключение прокси».</string>
+    <string name="stale_proxy_hint">В Telegram добавлено несколько прокси AndMTProto, или некоторые из них устарели. Удалите лишние прокси в Telegram (Настройки → Данные и память → Настройки прокси) и отключите «Автопереключение прокси». Затем перезапустите Telegram: до этого он продолжает проверять удалённые записи.</string>
     <string name="core_version">Ядро прокси %1$s · приложение %2$s</string>
     <string name="check_updates">Проверить обновления</string>
     <string name="copy_link">Копировать ссылку</string>

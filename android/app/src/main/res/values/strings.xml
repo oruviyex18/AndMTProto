@@ -10,7 +10,7 @@
 
     <string name="status_running">Proxy is running</string>
     <string name="status_stopped">Proxy is stopped</string>
-    <string name="stale_proxy_hint">The client is using multiple AndMTProto proxy entries in Telegram, or some entries are outdated. Please remove the redundant proxies in Telegram (Settings → Data and Storage → Proxy Settings) and disable “Auto-switch proxies”.</string>
+    <string name="stale_proxy_hint">The client is using multiple AndMTProto proxy entries in Telegram, or some entries are outdated. Please remove the redundant proxies in Telegram (Settings → Data and Storage → Proxy Settings) and disable “Auto-switch proxies”. Then restart Telegram: until then it keeps checking the deleted entries.</string>
     <string name="core_version">Proxy core %1$s · app %2$s</string>
     <string name="check_updates">Check for updates</string>
     <string name="latest_release_url" translatable="false">https://github.com/oruviyex18/AndMTProto/releases/latest</string>
