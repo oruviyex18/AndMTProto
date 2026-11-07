@@ -337,3 +337,34 @@ def test_scrub_logged_secrets(tmp_path):
     assert "secret=ee<secret>6578616d706c652e636f6d" in text  # domain hex isn't secret
     assert "cf_ray=a53b5828caddfbc4 kept" in text
     android_entry._scrub_logged_secrets(str(tmp_path / "missing.log"))  # no error
+
+
+def test_bad_handshakes_recent_window():
+    from proxy.stats import stats
+
+    android_entry._reset_stats(now=0.0)
+    for minute, bad in ((2, 3), (5, 4), (12, 10), (20, 10)):
+        stats.connections_bad = bad
+        android_entry._record_sample(now=minute * 60.0)
+    # At 20 min the window starts at 10 min; the newest sample by then is 5 min (4 bad).
+    assert android_entry._bad_handshakes_recent(now=20 * 60.0) == 10 - 4
+    # In the first 10 minutes everything since the start counts.
+    assert android_entry._bad_handshakes_recent(now=4 * 60.0) == 10
+    android_entry._reset_stats(now=0.0)
+    assert android_entry._bad_handshakes_recent(now=0.0) == 0
+
+
+def test_status_counts_rejected_handshakes(tmp_path):
+    cfg = _cfg()
+    port = json.loads(cfg)["port"]
+    try:
+        assert android_entry.start(cfg, str(tmp_path)) is None
+        assert _wait(lambda: json.loads(android_entry.status())["listening"])
+        for _ in range(2):
+            # 64 bytes that don't decrypt to a valid header with this secret,
+            # like a Telegram proxy entry with an old secret.
+            with socket.create_connection(('127.0.0.1', port), timeout=2) as s:
+                s.sendall(bytes(64))
+        assert _wait(lambda: json.loads(android_entry.status())["bad_recent"] == 2)
+    finally:
+        android_entry.stop()

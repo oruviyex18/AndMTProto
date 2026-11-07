@@ -75,11 +75,14 @@ _stop_requested: Optional[threading.Event] = None
 # The running loop and its stop event, published by the proxy thread.
 _async_stop: Optional[Tuple[asyncio.AbstractEventLoop, asyncio.Event]] = None
 _last_error: Optional[Dict[str, Any]] = None
-# (monotonic time, stats.connections_total) samples for the last-hour count;
-# the first one is the newest sample at or before the start of the hour.
+# (monotonic time, stats.connections_total, stats.connections_bad) samples for
+# the last-hour count; the first one is the newest sample at or before the
+# start of the hour.
 _HOUR_S = 3600.0
 _SAMPLE_S = 10.0
-_samples: Deque[Tuple[float, int]] = collections.deque()
+# Window for counting rejected handshakes, which the UI turns into a hint.
+_BAD_WINDOW_S = 600.0
+_samples: Deque[Tuple[float, int, int]] = collections.deque()
 _samples_lock = threading.Lock()
 _log_handler: Optional[logging.Handler] = None
 
@@ -272,12 +275,12 @@ def _reset_stats(now: float) -> None:
     stats.__init__()  # the core keeps references to this one object
     with _samples_lock:
         _samples.clear()
-        _samples.append((now, 0))
+        _samples.append((now, 0, 0))
 
 
 def _record_sample(now: float) -> None:
     with _samples_lock:
-        _samples.append((now, stats.connections_total))
+        _samples.append((now, stats.connections_total, stats.connections_bad))
         while len(_samples) > 1 and _samples[1][0] <= now - _HOUR_S:
             _samples.popleft()
 
@@ -287,6 +290,19 @@ def _connections_last_hour() -> int:
     with _samples_lock:
         baseline = _samples[0][1] if _samples else 0
     return stats.connections_total - baseline
+
+
+def _bad_handshakes_recent(now: float) -> int:
+    """Handshakes rejected (wrong secret or protocol) in about the last
+    _BAD_WINDOW_S. A steady stream means Telegram keeps checking a proxy entry
+    with an old secret, or an ee link after Fake TLS was turned off."""
+    baseline = 0
+    with _samples_lock:
+        for sampled_at, _, bad in _samples:
+            if sampled_at > now - _BAD_WINDOW_S:
+                break
+            baseline = bad
+    return stats.connections_bad - baseline
 
 
 async def _sample_connections() -> None:
@@ -498,6 +514,7 @@ def status() -> str:
         "active": stats.connections_active,
         "total": stats.connections_total,
         "last_hour": _connections_last_hour(),
+        "bad_recent": _bad_handshakes_recent(time.monotonic()),
         "bytes_up": stats.bytes_up,
         "bytes_down": stats.bytes_down,
     })

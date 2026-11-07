@@ -38,6 +38,8 @@ data class ProxyStatus(
     /** Since the proxy last started. */
     val total: Int = 0,
     val lastHour: Int = 0,
+    /** Handshakes rejected for a wrong secret in about the last 10 minutes. */
+    val badRecent: Int = 0,
     val bytesUp: Long = 0,
     val bytesDown: Long = 0,
 )
@@ -121,6 +123,7 @@ object ProxyCore {
             active = o.getInt("active"),
             total = o.getInt("total"),
             lastHour = o.getInt("last_hour"),
+            badRecent = o.getInt("bad_recent"),
             bytesUp = o.getLong("bytes_up"),
             bytesDown = o.getLong("bytes_down"),
         ).also { _state.value = it }
