@@ -64,11 +64,11 @@ New versions install over old ones and keep your settings. The exceptions are ve
 
 ### Features
 
-- **Start / Stop**: the proxy runs in the background as a service with a notification
-- **Open in Telegram**: sets up the proxy automatically through a `tg://proxy` link
-- **Copy link**: copies the connection link
-- **Settings**: port, secret, DC → IP, CF proxy and CF Worker, Fake TLS and more
-- **Log**: the latest proxy log lines right in the app
+- **Big start button** on the main screen: the proxy runs in the background as a service with a notification. Below it you see the state, the routes (WebSocket / Cloudflare) and connection stats
+- **Open in Telegram / Copy link**: on the main screen after starting, until Telegram connects; then in the ⋮ menu of the “Telegram connected” card, and always in **Settings → Telegram link**
+- **Hint cards**: background work, errors, redundant proxies in Telegram, a new version; they go away once the problem is solved
+- **Settings** (top bar): connection, route, masking (Fake TLS), app and advanced options. The secret is hidden. Changes are saved when you leave Settings, and a running proxy restarts
+- **Log** (top bar): the latest log lines with a warnings / errors filter, copy and share; the secret is hidden in the log
 - **Check for updates**: opens the latest release page, where you can compare its version with the one shown in the app and download the new APK if needed
 - **Check for updates daily** (on by default): once a day AndMTProto checks the GitHub releases and shows a notification when a new version is out. Tapping it opens the release page
 - **Quick Settings tile**: turns the proxy on and off from the notification shade
@@ -79,7 +79,7 @@ New versions install over old ones and keep your settings. The exceptions are ve
 
 **Automatic**
 
-1. Open AndMTProto and tap **Start**. On Android 13 and newer, allow notifications.
+1. Open AndMTProto and tap the big start button. On Android 13 and newer, allow notifications.
 2. Tap **Open in Telegram**, then **Connect proxy** in Telegram.
 
 If Telegram doesn't open, tap **Copy link**, send the link to your Saved Messages in Telegram and tap it.

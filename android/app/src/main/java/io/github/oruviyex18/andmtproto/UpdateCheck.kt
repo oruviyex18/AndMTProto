@@ -33,6 +33,25 @@ object UpdateCheck {
     private const val TAG_PREFIX = "android-v"
     private const val PREFS = "update_check"
     private const val KEY_NOTIFIED = "notified_version"
+    private const val KEY_LATEST = "latest_version"
+    private const val KEY_LATEST_URL = "latest_url"
+    private const val KEY_DISMISSED = "dismissed_version"
+
+    /** A newer release found by the last check, for the main screen. */
+    data class Available(val version: String, val url: String)
+
+    /** The newer release from the last check, unless installed meanwhile or dismissed. */
+    fun available(context: Context): Available? {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val version = prefs.getString(KEY_LATEST, null) ?: return null
+        if (!isNewer(version, BuildConfig.VERSION_NAME)) return null
+        if (prefs.getString(KEY_DISMISSED, null) == version) return null
+        return Available(version, prefs.getString(KEY_LATEST_URL, null).orEmpty())
+    }
+
+    fun dismiss(context: Context, version: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit { putString(KEY_DISMISSED, version) }
+    }
 
     /** Starts the daily job, or cancels it when [enabled] is false. */
     fun schedule(context: Context, enabled: Boolean) {
@@ -56,6 +75,7 @@ object UpdateCheck {
         val (version, url) = fetchLatest() ?: return
         if (!isNewer(version, BuildConfig.VERSION_NAME)) return
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        prefs.edit { putString(KEY_LATEST, version).putString(KEY_LATEST_URL, url) }
         if (prefs.getString(KEY_NOTIFIED, null) == version) return
         Log.i(TAG, "New version $version available")
         context.getSystemService(NotificationManager::class.java)
