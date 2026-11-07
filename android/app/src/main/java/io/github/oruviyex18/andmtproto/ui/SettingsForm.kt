@@ -113,6 +113,7 @@ fun SettingsForm(draft: SettingsDraft, onChange: (SettingsDraft) -> Unit) {
     Toggle(s.forceTestDc, R.string.force_test_dc) { v -> edit { copy(forceTestDc = v) } }
     Toggle(s.verbose, R.string.verbose) { v -> edit { copy(verbose = v) } }
     Toggle(s.startOnBoot, R.string.start_on_boot) { v -> edit { copy(startOnBoot = v) } }
+    Toggle(s.checkUpdates, R.string.check_updates_daily) { v -> edit { copy(checkUpdates = v) } }
 }
 
 /**

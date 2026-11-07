@@ -57,6 +57,10 @@
     <string name="force_test_dc">Принудительно тестовые DC</string>
     <string name="no_secure">Без TLS для CF proxy/worker (порт 80)</string>
     <string name="verbose">Подробный лог</string>
+    <string name="check_updates_daily">Ежедневно проверять обновления</string>
+    <string name="channel_updates">Обновления</string>
+    <string name="update_available_title">Доступна версия AndMTProto %1$s</string>
+    <string name="update_available_text">У вас %1$s. Нажмите, чтобы открыть страницу релиза.</string>
     <string name="start_on_boot">Запускать при включении телефона</string>
     <string name="save">Сохранить</string>
     <string name="save_restart">Сохранить и перезапустить</string>
