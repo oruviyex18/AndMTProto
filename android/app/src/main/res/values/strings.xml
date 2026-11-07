@@ -19,7 +19,9 @@
     <string name="telegram_not_found">Telegram is not installed. Copy the link instead.</string>
     <string name="battery_hint">Battery optimisation may stop the proxy in the background. In the list that opens, find AndMTProto and turn optimisation off for it (if it isn’t listed, switch the list to all apps).</string>
     <string name="battery_button">Allow background work</string>
-    <string name="miui_hint">On Xiaomi (MIUI / HyperOS) the system may stop the proxy in the background. Tap “Allow background work”, pick AndMTProto, open its background activity control and choose “No restrictions”. Then turn on Autostart for AndMTProto.</string>
+    <string name="miui_background_hint">On Xiaomi (MIUI / HyperOS) the system may stop the proxy in the background. Tap “Allow background work”, pick AndMTProto, open its background activity control and choose “No restrictions”.</string>
+    <string name="miui_autostart_hint">Autostart is off for AndMTProto, so the proxy can’t start with the phone or come back after the system stops it. Tap the button below and turn on Autostart for AndMTProto.</string>
+    <string name="miui_autostart_unknown">Turn on Autostart for AndMTProto, or the proxy can’t start with the phone or come back after the system stops it. The app can’t check this setting on this phone, so tap “Done” once it’s on.</string>
     <string name="miui_button">Open Autostart settings</string>
 
     <string name="error_port_in_use">Port %1$s is already used by another app.</string>
@@ -82,6 +84,7 @@
     <string name="card_linked_body">Open or copy the link again from the ⋮ menu.</string>
     <string name="card_stale_title">Telegram has redundant proxies</string>
     <string name="card_background_title">Background work</string>
+    <string name="card_autostart_title">Autostart</string>
     <string name="card_done">Done</string>
     <string name="card_update_body">You have %1$s. Open the release page to download the APK.</string>
     <string name="card_later">Later</string>

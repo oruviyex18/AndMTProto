@@ -19,25 +19,20 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import io.github.oruviyex18.andmtproto.R
 
 /**
- * Asks to exempt the app from battery optimisation until it is. Not on Xiaomi:
- * MIUI replaces the system list with its own screen, which never grants the
- * Android exemption, so the card would never go away; [MiuiCard] covers it there.
+ * Asks to exempt the app from battery optimisation until it is. On Xiaomi the
+ * button opens MIUI / HyperOS's own list, where "No restrictions" in the app's
+ * background activity control grants this same Android exemption (checked on
+ * HyperOS 3: the default mode and "Restrict" both take it away again).
  */
 @Composable
 fun BatteryCard() {
-    if (isXiaomiDevice) return
     val context = LocalContext.current
     val pm = remember { context.getSystemService(PowerManager::class.java) }
-    var exempt by remember { mutableStateOf(pm.isIgnoringBatteryOptimizations(context.packageName)) }
-    // Re-check when the user comes back from the system settings screen.
-    LifecycleResumeEffect(Unit) {
-        exempt = pm.isIgnoringBatteryOptimizations(context.packageName)
-        onPauseOrDispose { }
-    }
+    val exempt = rememberOnResume { pm.isIgnoringBatteryOptimizations(context.packageName) }
     if (exempt) return
     AttentionCard(
         title = stringResource(R.string.card_background_title),
-        body = stringResource(R.string.battery_hint),
+        body = stringResource(if (isXiaomiDevice) R.string.miui_background_hint else R.string.battery_hint),
         container = MaterialTheme.colorScheme.tertiaryContainer,
         content = MaterialTheme.colorScheme.onTertiaryContainer,
     ) {
@@ -48,29 +43,41 @@ fun BatteryCard() {
 }
 
 /**
- * MIUI / HyperOS stop background apps on their own, and neither their activity
- * control nor Autostart setting can be read, so the user closes this card with
- * [onDone] once both are set. The battery button opens MIUI's activity control.
+ * MIUI / HyperOS's Autostart switch, read again on every return to the app and
+ * shown only while it is off. Where the ROM doesn't let us read it, the user
+ * closes the card with [onDone] instead ([confirmed]).
  */
 @Composable
-fun MiuiCard(onDone: () -> Unit) {
+fun MiuiAutostartCard(confirmed: Boolean, onDone: () -> Unit) {
     if (!isXiaomiDevice) return
     val context = LocalContext.current
+    val enabled = rememberOnResume { context.miuiAutostartEnabled() }
+    if (enabled == true || (enabled == null && confirmed)) return
     AttentionCard(
-        title = stringResource(R.string.card_background_title),
-        body = stringResource(R.string.miui_hint),
+        title = stringResource(R.string.card_autostart_title),
+        body = stringResource(if (enabled == null) R.string.miui_autostart_unknown else R.string.miui_autostart_hint),
         container = MaterialTheme.colorScheme.tertiaryContainer,
         content = MaterialTheme.colorScheme.onTertiaryContainer,
         actionsBelow = true,
     ) {
-        TextButton(onClick = { context.openBatteryOptimizationSettings() }) {
-            Text(stringResource(R.string.battery_button))
-        }
         TextButton(onClick = { context.openMiuiAutostart() }) {
             Text(stringResource(R.string.miui_button))
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            TextButton(onClick = onDone) { Text(stringResource(R.string.card_done)) }
+        if (enabled == null) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDone) { Text(stringResource(R.string.card_done)) }
+            }
         }
     }
+}
+
+/** [read] now and again each time the screen resumes, e.g. back from system settings. */
+@Composable
+private fun <T> rememberOnResume(read: () -> T): T {
+    var value by remember { mutableStateOf(read()) }
+    LifecycleResumeEffect(Unit) {
+        value = read()
+        onPauseOrDispose { }
+    }
+    return value
 }

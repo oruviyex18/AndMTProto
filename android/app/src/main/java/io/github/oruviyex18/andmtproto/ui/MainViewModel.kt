@@ -27,7 +27,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _draft = MutableStateFlow(SettingsDraft(_saved.value))
     private val _telegramLinked = MutableStateFlow(isLinked(_saved.value))
     private val _update = MutableStateFlow(UpdateCheck.available(app))
-    private val _miuiDone = MutableStateFlow(uiPrefs.getBoolean(KEY_MIUI_DONE, false))
+    private val _miuiAutostartDone = MutableStateFlow(uiPrefs.getBoolean(KEY_MIUI_AUTOSTART_DONE, false))
 
     /** Edits survive rotation because they live here, not in the composable. */
     val draft: StateFlow<SettingsDraft> = _draft.asStateFlow()
@@ -40,8 +40,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val telegramLinked: StateFlow<Boolean> = _telegramLinked.asStateFlow()
     val update: StateFlow<UpdateCheck.Available?> = _update.asStateFlow()
 
-    /** The user confirmed the MIUI background settings, which can't be read back. */
-    val miuiDone: StateFlow<Boolean> = _miuiDone.asStateFlow()
+    /** The user confirmed Autostart, only used where the ROM doesn't let us read it. */
+    val miuiAutostartDone: StateFlow<Boolean> = _miuiAutostartDone.asStateFlow()
 
     init {
         ProxyCore.refresh()
@@ -98,9 +98,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _update.value = null
     }
 
-    fun markMiuiDone() {
-        uiPrefs.edit { putBoolean(KEY_MIUI_DONE, true) }
-        _miuiDone.value = true
+    fun markMiuiAutostartDone() {
+        uiPrefs.edit { putBoolean(KEY_MIUI_AUTOSTART_DONE, true) }
+        _miuiAutostartDone.value = true
     }
 
     private fun markLinked() {
@@ -122,6 +122,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private companion object {
         const val KEY_LINKED = "telegram_linked"
-        const val KEY_MIUI_DONE = "miui_done"
+        const val KEY_MIUI_AUTOSTART_DONE = "miui_autostart_done"
     }
 }

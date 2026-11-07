@@ -100,7 +100,7 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
     val status by vm.status.collectAsStateWithLifecycle()
     val linked by vm.telegramLinked.collectAsStateWithLifecycle()
     val update by vm.update.collectAsStateWithLifecycle()
-    val miuiDone by vm.miuiDone.collectAsStateWithLifecycle()
+    val miuiAutostartDone by vm.miuiAutostartDone.collectAsStateWithLifecycle()
     val startProxy = rememberProxyStarter()
     var logShown by rememberSaveable { mutableStateOf(false) }
 
@@ -158,7 +158,7 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
                 )
             }
             BatteryCard()
-            if (!miuiDone) MiuiCard(onDone = vm::markMiuiDone)
+            MiuiAutostartCard(confirmed = miuiAutostartDone, onDone = vm::markMiuiAutostartDone)
             update?.let { u ->
                 val releasesUrl = stringResource(R.string.latest_release_url)
                 AttentionCard(
