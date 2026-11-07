@@ -60,6 +60,10 @@
     <string name="force_test_dc">Force test DCs</string>
     <string name="no_secure">No TLS for CF proxy/worker (port 80)</string>
     <string name="verbose">Verbose logging</string>
+    <string name="check_updates_daily">Check for updates daily</string>
+    <string name="channel_updates">Updates</string>
+    <string name="update_available_title">AndMTProto %1$s is available</string>
+    <string name="update_available_text">You have %1$s. Tap to open the release page.</string>
     <string name="start_on_boot">Start on boot</string>
     <string name="save">Save</string>
     <string name="save_restart">Save and restart</string>

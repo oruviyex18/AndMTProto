@@ -35,7 +35,7 @@
 >
 > If Google Play Protect calls AndMTProto a **harmful app**, it's most likely an old version, or the file didn't come from here or was modified. Delete it and download the latest version from the releases page.
 >
-> AndMTProto collects no data and talks to no servers other than Telegram, Cloudflare (the fallback route through the shared CF proxy or your own domains and Worker) and GitHub (where the current list of CF proxy domains is downloaded from). The proxy listens only on `127.0.0.1`, so only Telegram on the same phone can connect to it. All the code is open in this repository, and the APKs are built from it by GitHub Actions.
+> AndMTProto collects no data and talks to no servers other than Telegram, Cloudflare (the fallback route through the shared CF proxy or your own domains and Worker) and GitHub (where the current list of CF proxy domains is downloaded from, and where it checks once a day whether a new AndMTProto version is out; you can turn the check off in the settings). The proxy listens only on `127.0.0.1`, so only Telegram on the same phone can connect to it. All the code is open in this repository, and the APKs are built from it by GitHub Actions.
 >
 > **Download the APK only from [this repository's releases page](https://github.com/oruviyex18/AndMTProto/releases).** Every release since `1.11.2-android.2` is signed with the same AndMTProto key (certificate SHA-256 starts with `14:03:0C:3F`), so Android won't install a tampered build over it.
 
@@ -70,6 +70,7 @@ New versions install over old ones and keep your settings. The exceptions are ve
 - **Settings**: port, secret, DC → IP, CF proxy and CF Worker, Fake TLS and more
 - **Log**: the latest proxy log lines right in the app
 - **Check for updates**: opens the latest release page, where you can compare its version with the one shown in the app and download the new APK if needed
+- **Check for updates daily** (on by default): once a day AndMTProto checks the GitHub releases and shows a notification when a new version is out. Tapping it opens the release page
 - **Quick Settings tile**: turns the proxy on and off from the notification shade
 - **Start on boot**: the proxy starts by itself after a restart (after the first unlock)
 - Hints for background work: battery optimisation and Autostart on Xiaomi (MIUI / HyperOS)

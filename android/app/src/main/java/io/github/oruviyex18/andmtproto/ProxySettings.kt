@@ -41,6 +41,8 @@ data class ProxySettings(
     val verbose: Boolean = false,
     /** Android-only; ignored by the Python core. */
     val startOnBoot: Boolean = false,
+    /** Android-only: the daily [UpdateCheck]. */
+    val checkUpdates: Boolean = true,
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("host", host)
@@ -60,6 +62,7 @@ data class ProxySettings(
         .put("no_secure", noSecure)
         .put("verbose", verbose)
         .put("start_on_boot", startOnBoot)
+        .put("check_updates", checkUpdates)
 
     companion object {
         fun fromJson(o: JSONObject): ProxySettings {
@@ -83,6 +86,7 @@ data class ProxySettings(
                 noSecure = o.optBoolean("no_secure", d.noSecure),
                 verbose = o.optBoolean("verbose", d.verbose),
                 startOnBoot = o.optBoolean("start_on_boot", d.startOnBoot),
+                checkUpdates = o.optBoolean("check_updates", d.checkUpdates),
             )
         }
 
@@ -109,6 +113,7 @@ class SettingsStore(context: Context) {
     fun save(settings: ProxySettings) {
         prefs.edit { putString(KEY, settings.toJson().toString()) }
         BootReceiver.setEnabled(appContext, settings.startOnBoot)
+        UpdateCheck.schedule(appContext, settings.checkUpdates)
     }
 
     private companion object {

@@ -60,6 +60,12 @@
             </intent-filter>
         </service>
 
+        <!-- Daily update check (UpdateCheck.schedule); persisted jobs need RECEIVE_BOOT_COMPLETED. -->
+        <service
+            android:name=".UpdateCheckJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
         <!-- Disabled until the user turns on "Start on boot" (BootReceiver.setEnabled). -->
         <receiver
             android:name=".BootReceiver"
