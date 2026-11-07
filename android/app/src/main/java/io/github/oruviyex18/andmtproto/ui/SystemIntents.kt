@@ -1,5 +1,6 @@
 package io.github.oruviyex18.andmtproto.ui
 
+import android.app.AppOpsManager
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -70,6 +71,30 @@ internal fun Context.openMiuiAutostart() {
         )
     )
     startActivitySafely(autostart) || startActivitySafely(appDetailsIntent())
+}
+
+/** MIUI's app op for the Autostart switch ("MIUIOP(10008)" in `cmd appops get`). */
+private const val MIUI_OP_AUTO_START = 10008
+
+/**
+ * Whether MIUI's Autostart is on for this app, or null where it can't be read.
+ * MIUI keeps it as its own app op; the public AppOpsManager API takes only op names,
+ * so this calls the hidden checkOpNoThrow(int, int, String).
+ */
+internal fun Context.miuiAutostartEnabled(): Boolean? = try {
+    val ops = getSystemService(AppOpsManager::class.java)
+    val check = AppOpsManager::class.java.getMethod(
+        "checkOpNoThrow", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, String::class.java,
+    )
+    when (check.invoke(ops, MIUI_OP_AUTO_START, applicationInfo.uid, packageName) as Int) {
+        AppOpsManager.MODE_ALLOWED -> true
+        AppOpsManager.MODE_IGNORED, AppOpsManager.MODE_ERRORED -> false
+        else -> null
+    }
+} catch (_: ReflectiveOperationException) {
+    null
+} catch (_: RuntimeException) {
+    null
 }
 
 /** Xiaomi, Redmi and POCO phones run MIUI / HyperOS, which stops background apps on its own. */
