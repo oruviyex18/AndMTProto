@@ -45,12 +45,15 @@ private enum class LogFilter(val label: Int, val levels: Set<String>?) {
     ERRORS(R.string.log_errors, setOf("ERROR")),
 }
 
+/** "12:34:56  WARNING ..." → WARNING: the level of a log entry's first line. */
+private val LOG_LEVEL = Regex("""^\d\d:\d\d:\d\d\s+(\w+)""")
+
 /** Lines of [text] at one of [levels]; continuation lines (tracebacks) follow their entry. */
 private fun filterLog(text: String, levels: Set<String>?): String {
     if (levels == null) return text
     var keep = false
     return text.lines().filter { line ->
-        val level = Regex("""^\d\d:\d\d:\d\d\s+(\w+)""").find(line)?.groupValues?.get(1)
+        val level = LOG_LEVEL.find(line)?.groupValues?.get(1)
         if (level != null) keep = level in levels
         keep
     }.joinToString("\n")
