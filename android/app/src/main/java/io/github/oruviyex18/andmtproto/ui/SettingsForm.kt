@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -26,6 +27,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.github.oruviyex18.andmtproto.ProxySettings
@@ -163,6 +166,8 @@ private fun SecretField(secret: String, onChange: (String) -> Unit, onNew: () ->
     OutlinedTextField(
         value = secret, onValueChange = onChange, singleLine = true,
         label = { Text(stringResource(R.string.secret)) },
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+        keyboardActions = closeKeyboardOnDone(),
         visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
         modifier = Modifier.fillMaxWidth(),
     )
@@ -221,8 +226,22 @@ private fun Field(
     OutlinedTextField(
         value = value, onValueChange = onValueChange, singleLine = true,
         label = { Text(stringResource(label)) }, modifier = modifier,
-        keyboardOptions = if (number) KeyboardOptions(keyboardType = KeyboardType.Number) else KeyboardOptions.Default,
+        keyboardOptions = KeyboardOptions(
+            keyboardType = if (number) KeyboardType.Number else KeyboardType.Text,
+            imeAction = ImeAction.Done,
+        ),
+        keyboardActions = closeKeyboardOnDone(),
     )
+}
+
+/**
+ * The keyboard's Done key closes it. Not "Next": between the fields are switches and
+ * buttons, so moving focus would close the keyboard anyway, just less predictably.
+ */
+@Composable
+private fun closeKeyboardOnDone(): KeyboardActions {
+    val focusManager = LocalFocusManager.current
+    return KeyboardActions(onDone = { focusManager.clearFocus() })
 }
 
 @Composable
