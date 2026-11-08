@@ -84,6 +84,7 @@
     <string name="card_linked_body">Open or copy the link again from the ⋮ menu.</string>
     <string name="card_stale_title">Telegram has redundant proxies</string>
     <string name="card_background_title">Background work</string>
+    <string name="settings_saved_on_leave">Changes are saved when you leave Settings; a running proxy restarts with them.</string>
     <string name="card_autostart_title">Autostart</string>
     <string name="card_done">Done</string>
     <string name="card_update_body">You have %1$s. Open the release page to download the APK.</string>

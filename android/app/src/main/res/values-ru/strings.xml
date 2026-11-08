@@ -81,6 +81,7 @@
     <string name="card_linked_body">Открыть или скопировать ссылку снова — в меню ⋮.</string>
     <string name="card_stale_title">В Telegram есть лишние прокси</string>
     <string name="card_background_title">Работа в фоне</string>
+    <string name="settings_saved_on_leave">Изменения сохраняются при выходе из настроек; работающий прокси перезапустится с ними.</string>
     <string name="card_autostart_title">Автозапуск</string>
     <string name="card_done">Готово</string>
     <string name="card_update_body">У вас %1$s. Откройте страницу релиза, чтобы скачать APK.</string>

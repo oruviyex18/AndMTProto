@@ -4,7 +4,10 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -24,7 +27,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -44,8 +49,10 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     val resources = LocalResources.current
     val draft by vm.draft.collectAsStateWithLifecycle()
     var linkShown by rememberSaveable { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
 
     val leave = {
+        focusManager.clearFocus() // hides the keyboard before the screen changes
         when (val result = vm.save()) {
             is MainViewModel.SaveResult.Invalid ->
                 context.toast(resources.getString(R.string.invalid_number, resources.getString(result.field)))
@@ -74,11 +81,22 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
             Modifier
                 .fillMaxSize()
                 .padding(padding)
+                // Edge-to-edge on Android 15+ ignores adjustResize, so make room for the
+                // keyboard here; the focused field then scrolls into view above it.
+                .consumeWindowInsets(padding)
+                .imePadding()
+                // A tap outside the fields closes the keyboard.
+                .pointerInput(Unit) { detectTapGestures { focusManager.clearFocus() } }
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            Text(
+                stringResource(R.string.settings_saved_on_leave),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             SettingsForm(draft, onChange = vm::edit, onShowLink = { linkShown = true })
         }
     }
