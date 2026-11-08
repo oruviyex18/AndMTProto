@@ -100,6 +100,7 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
     val status by vm.status.collectAsStateWithLifecycle()
     val linked by vm.telegramLinked.collectAsStateWithLifecycle()
     val update by vm.update.collectAsStateWithLifecycle()
+    val miuiBackgroundDone by vm.miuiBackgroundDone.collectAsStateWithLifecycle()
     val miuiAutostartDone by vm.miuiAutostartDone.collectAsStateWithLifecycle()
     val startProxy = rememberProxyStarter()
     var logShown by rememberSaveable { mutableStateOf(false) }
@@ -157,8 +158,8 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
                     onCopy = { vm.link()?.let(context::copyToClipboard) },
                 )
             }
-            BatteryCard()
-            MiuiAutostartCard(confirmed = miuiAutostartDone, onDone = vm::markMiuiAutostartDone)
+            BatteryCard(dismissed = miuiBackgroundDone, onDismiss = vm::markMiuiBackgroundDone)
+            MiuiAutostartCard(dismissed = miuiAutostartDone, onDismiss = vm::markMiuiAutostartDone)
             update?.let { u ->
                 val releasesUrl = stringResource(R.string.latest_release_url)
                 AttentionCard(
@@ -355,7 +356,9 @@ private fun StatTile(value: String, label: String, modifier: Modifier) {
 /**
  * Adding the proxy to Telegram: two big buttons until Telegram has used it with the
  * current port and secret, then a collapsed card with both actions in its menu. The
- * stale-proxy hint expands it again, since re-adding the proxy is the fix.
+ * stale-proxy hint expands it again: its text asks to delete the extra entries and
+ * restart Telegram, and the buttons re-add the current entry in case the one kept
+ * was an old one (Telegram's list shows them all as the same address).
  */
 @Composable
 private fun TelegramCard(linked: Boolean, stale: Boolean, onOpen: () -> Unit, onCopy: () -> Unit) {

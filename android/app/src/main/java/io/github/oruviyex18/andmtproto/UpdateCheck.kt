@@ -55,7 +55,8 @@ object UpdateCheck {
 
     /**
      * Starts the daily job, or cancels it when [enabled] is false. Called from
-     * App.onCreate, so a JobScheduler failure is logged instead of crashing the app.
+     * App.onCreate and SettingsStore.save, so a JobScheduler failure is logged instead
+     * of crashing the app; the job itself also checks the setting (see [run]).
      */
     fun schedule(context: Context, enabled: Boolean) {
         try {
@@ -71,15 +72,23 @@ object UpdateCheck {
                 .setPeriodic(TimeUnit.DAYS.toMillis(1))
                 .setPersisted(true)
                 .build()
-            scheduler.schedule(job)
+            if (scheduler.schedule(job) != JobScheduler.RESULT_SUCCESS) {
+                Log.w(TAG, "The system refused to schedule the update check")
+            }
         } catch (e: RuntimeException) {
-            // E.g. SecurityException on Android 16 without ACCESS_NETWORK_STATE.
+            // E.g. the SecurityException Android 14+ throws for this job without
+            // ACCESS_NETWORK_STATE, or an OEM JobScheduler quirk; never crash on start.
             Log.w(TAG, "Could not schedule the update check", e)
         }
     }
 
     /** Fetches the latest release and notifies if it is newer; throws [IOException] on network errors. */
     fun run(context: Context) {
+        // If cancelling the job failed when the check was turned off, stop here.
+        if (!SettingsStore(context).load().checkUpdates) {
+            schedule(context, false)
+            return
+        }
         val (version, url) = fetchLatest() ?: return
         if (!isNewer(version, BuildConfig.VERSION_NAME)) return
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
