@@ -27,8 +27,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _draft = MutableStateFlow(SettingsDraft(_saved.value))
     private val _telegramLinked = MutableStateFlow(isLinked(_saved.value))
     private val _update = MutableStateFlow(UpdateCheck.available(app))
-    private val _miuiBackgroundDone = MutableStateFlow(uiPrefs.getBoolean(KEY_MIUI_BACKGROUND_DONE, false))
-    private val _miuiAutostartDone = MutableStateFlow(migrateMiuiDone(app))
+    private val backgroundDone = DoneFlag(KEY_MIUI_BACKGROUND_DONE)
+    private val autostartDone = DoneFlag(KEY_MIUI_AUTOSTART_DONE, initial = migrateMiuiDone(app))
 
     /** Edits survive rotation because they live here, not in the composable. */
     val draft: StateFlow<SettingsDraft> = _draft.asStateFlow()
@@ -42,8 +42,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val update: StateFlow<UpdateCheck.Available?> = _update.asStateFlow()
 
     /** The user closed the MIUI background / Autostart card by hand (see [BatteryCard], [MiuiAutostartCard]). */
-    val miuiBackgroundDone: StateFlow<Boolean> = _miuiBackgroundDone.asStateFlow()
-    val miuiAutostartDone: StateFlow<Boolean> = _miuiAutostartDone.asStateFlow()
+    val miuiBackgroundDone: StateFlow<Boolean> = backgroundDone.state
+    val miuiAutostartDone: StateFlow<Boolean> = autostartDone.state
 
     init {
         ProxyCore.refresh()
@@ -100,14 +100,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _update.value = null
     }
 
-    fun markMiuiBackgroundDone() {
-        uiPrefs.edit { putBoolean(KEY_MIUI_BACKGROUND_DONE, true) }
-        _miuiBackgroundDone.value = true
-    }
+    fun markMiuiBackgroundDone() = backgroundDone.set()
 
-    fun markMiuiAutostartDone() {
-        uiPrefs.edit { putBoolean(KEY_MIUI_AUTOSTART_DONE, true) }
-        _miuiAutostartDone.value = true
+    fun markMiuiAutostartDone() = autostartDone.set()
+
+    /** A "the user closed this card" flag, kept in the ui prefs under [key]. */
+    private inner class DoneFlag(private val key: String, initial: Boolean = uiPrefs.getBoolean(key, false)) {
+        private val value = MutableStateFlow(initial)
+        val state: StateFlow<Boolean> = value.asStateFlow()
+
+        fun set() {
+            uiPrefs.edit { putBoolean(key, true) }
+            value.value = true
+        }
     }
 
     /**
