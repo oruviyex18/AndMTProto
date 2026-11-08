@@ -357,40 +357,29 @@ def test_bad_handshakes_recent_window():
     assert android_entry._bad_handshakes_recent(now=0.0) == 0
 
 
+def _send_bad_handshakes(port, n):
+    """n handshakes of 64 zero bytes, which don't decrypt to a valid header with the
+    test secret, like a Telegram proxy entry with an old secret."""
+    for _ in range(n):
+        with socket.create_connection(('127.0.0.1', port), timeout=2) as s:
+            s.sendall(bytes(64))
+
+
 def test_status_counts_rejected_handshakes(tmp_path):
+    """bad_recent counts rejected handshakes since the last start only: a restart
+    begins again from zero and new rejections still count."""
     cfg = _cfg()
     port = json.loads(cfg)["port"]
     try:
         assert android_entry.start(cfg, str(tmp_path)) is None
         assert _wait(lambda: json.loads(android_entry.status())["listening"])
-        for _ in range(2):
-            # 64 bytes that don't decrypt to a valid header with this secret,
-            # like a Telegram proxy entry with an old secret.
-            with socket.create_connection(('127.0.0.1', port), timeout=2) as s:
-                s.sendall(bytes(64))
+        _send_bad_handshakes(port, 2)
         assert _wait(lambda: json.loads(android_entry.status())["bad_recent"] == 2)
-    finally:
-        android_entry.stop()
-
-
-def test_restart_forgets_rejected_handshakes(tmp_path):
-    """The stale-proxy hint only counts handshakes since the last start, so
-    deleting old Telegram entries and restarting the proxy clears it."""
-    cfg = _cfg()
-    port = json.loads(cfg)["port"]
-    try:
-        assert android_entry.start(cfg, str(tmp_path)) is None
-        assert _wait(lambda: json.loads(android_entry.status())["listening"])
-        for _ in range(3):
-            with socket.create_connection(('127.0.0.1', port), timeout=2) as s:
-                s.sendall(bytes(64))
-        assert _wait(lambda: json.loads(android_entry.status())["bad_recent"] == 3)
         android_entry.stop()
         assert android_entry.start(cfg, str(tmp_path)) is None
         assert _wait(lambda: json.loads(android_entry.status())["listening"])
         assert json.loads(android_entry.status())["bad_recent"] == 0
-        with socket.create_connection(('127.0.0.1', port), timeout=2) as s:
-            s.sendall(bytes(64))
+        _send_bad_handshakes(port, 1)
         assert _wait(lambda: json.loads(android_entry.status())["bad_recent"] == 1)
     finally:
         android_entry.stop()

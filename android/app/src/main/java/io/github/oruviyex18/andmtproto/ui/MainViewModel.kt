@@ -27,7 +27,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _draft = MutableStateFlow(SettingsDraft(_saved.value))
     private val _telegramLinked = MutableStateFlow(isLinked(_saved.value))
     private val _update = MutableStateFlow(UpdateCheck.available(app))
-    private val _miuiAutostartDone = MutableStateFlow(uiPrefs.getBoolean(KEY_MIUI_AUTOSTART_DONE, false))
+    private val _miuiBackgroundDone = MutableStateFlow(uiPrefs.getBoolean(KEY_MIUI_BACKGROUND_DONE, false))
+    private val _miuiAutostartDone = MutableStateFlow(migrateMiuiDone(app))
 
     /** Edits survive rotation because they live here, not in the composable. */
     val draft: StateFlow<SettingsDraft> = _draft.asStateFlow()
@@ -40,7 +41,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val telegramLinked: StateFlow<Boolean> = _telegramLinked.asStateFlow()
     val update: StateFlow<UpdateCheck.Available?> = _update.asStateFlow()
 
-    /** The user confirmed Autostart, only used where the ROM doesn't let us read it. */
+    /** The user closed the MIUI background / Autostart card by hand (see [BatteryCard], [MiuiAutostartCard]). */
+    val miuiBackgroundDone: StateFlow<Boolean> = _miuiBackgroundDone.asStateFlow()
     val miuiAutostartDone: StateFlow<Boolean> = _miuiAutostartDone.asStateFlow()
 
     init {
@@ -98,9 +100,30 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _update.value = null
     }
 
+    fun markMiuiBackgroundDone() {
+        uiPrefs.edit { putBoolean(KEY_MIUI_BACKGROUND_DONE, true) }
+        _miuiBackgroundDone.value = true
+    }
+
     fun markMiuiAutostartDone() {
         uiPrefs.edit { putBoolean(KEY_MIUI_AUTOSTART_DONE, true) }
         _miuiAutostartDone.value = true
+    }
+
+    /**
+     * Android.3's single MIUI card had one "Done" for both settings. Both are read back
+     * now, so it only still counts for Autostart where that can't be read; the old key
+     * is removed either way. Returns the Autostart "Done" state.
+     */
+    private fun migrateMiuiDone(app: Application): Boolean {
+        if (uiPrefs.contains(KEY_LEGACY_MIUI_DONE)) {
+            val carry = uiPrefs.getBoolean(KEY_LEGACY_MIUI_DONE, false) && app.miuiAutostartEnabled() == null
+            uiPrefs.edit {
+                remove(KEY_LEGACY_MIUI_DONE)
+                if (carry) putBoolean(KEY_MIUI_AUTOSTART_DONE, true)
+            }
+        }
+        return uiPrefs.getBoolean(KEY_MIUI_AUTOSTART_DONE, false)
     }
 
     private fun markLinked() {
@@ -122,6 +145,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private companion object {
         const val KEY_LINKED = "telegram_linked"
+        const val KEY_MIUI_BACKGROUND_DONE = "miui_background_done"
         const val KEY_MIUI_AUTOSTART_DONE = "miui_autostart_done"
+        const val KEY_LEGACY_MIUI_DONE = "miui_done"
     }
 }

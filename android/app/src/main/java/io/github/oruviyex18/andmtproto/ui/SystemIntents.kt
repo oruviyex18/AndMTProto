@@ -1,5 +1,6 @@
 package io.github.oruviyex18.andmtproto.ui
 
+import android.annotation.SuppressLint
 import android.app.AppOpsManager
 import android.content.ActivityNotFoundException
 import android.content.ClipData
@@ -13,6 +14,7 @@ import android.widget.Toast
 import androidx.annotation.StringRes
 import androidx.core.net.toUri
 import io.github.oruviyex18.andmtproto.R
+import java.lang.reflect.Method
 
 /** Starts [intent]; false when no app handles it or the ROM refuses it. */
 internal fun Context.startActivitySafely(intent: Intent): Boolean = try {
@@ -77,28 +79,56 @@ internal fun Context.openMiuiAutostart() {
 private const val MIUI_OP_AUTO_START = 10008
 
 /**
- * Whether MIUI's Autostart is on for this app, or null where it can't be read.
- * MIUI keeps it as its own app op; the public AppOpsManager API takes only op names,
- * so this calls the hidden checkOpNoThrow(int, int, String).
+ * The hidden AppOpsManager.checkOpNoThrow(int, int, String), looked up once: MIUI keeps
+ * Autostart as its own app op, and the public API takes only op names.
  */
-internal fun Context.miuiAutostartEnabled(): Boolean? = try {
-    val ops = getSystemService(AppOpsManager::class.java)
-    val check = AppOpsManager::class.java.getMethod(
-        "checkOpNoThrow", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, String::class.java,
-    )
-    when (check.invoke(ops, MIUI_OP_AUTO_START, applicationInfo.uid, packageName) as Int) {
-        AppOpsManager.MODE_ALLOWED -> true
-        AppOpsManager.MODE_IGNORED, AppOpsManager.MODE_ERRORED -> false
-        else -> null
-    }
-} catch (_: ReflectiveOperationException) {
-    null
-} catch (_: RuntimeException) {
-    null
+private val checkOpNoThrow: Method? by lazy {
+    runCatching {
+        AppOpsManager::class.java.getMethod(
+            "checkOpNoThrow", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, String::class.java,
+        )
+    }.getOrNull()
 }
 
-/** Xiaomi, Redmi and POCO phones run MIUI / HyperOS, which stops background apps on its own. */
-internal val isXiaomiDevice: Boolean =
-    listOf(Build.MANUFACTURER, Build.BRAND).any { brand ->
+/**
+ * Whether MIUI's Autostart is on for this app, or null where it can't be read
+ * (including MODE_ERRORED, which says the check failed, not that the switch is off).
+ */
+internal fun Context.miuiAutostartEnabled(): Boolean? {
+    val check = checkOpNoThrow ?: return null
+    return try {
+        val ops = getSystemService(AppOpsManager::class.java)
+        when (check.invoke(ops, MIUI_OP_AUTO_START, applicationInfo.uid, packageName) as Int) {
+            AppOpsManager.MODE_ALLOWED -> true
+            AppOpsManager.MODE_IGNORED -> false
+            else -> null
+        }
+    } catch (_: ReflectiveOperationException) {
+        null // e.g. "Bad operation #10008" on a ROM without MIUI's ops
+    } catch (_: RuntimeException) {
+        null
+    }
+}
+
+/** A system property ("" if unset), or null where it can't be read (android.os.SystemProperties is hidden). */
+@SuppressLint("PrivateApi") // the MIUI version properties have no public API; failure is handled
+private fun systemProperty(name: String): String? = runCatching {
+    Class.forName("android.os.SystemProperties").getMethod("get", String::class.java)
+        .invoke(null, name) as String
+}.getOrNull()
+
+/**
+ * The phone runs MIUI or HyperOS, which stop background apps on their own and have
+ * the Autostart switch. Xiaomi phones on stock Android (Android One Mi A series,
+ * custom ROMs) don't, so the brand alone isn't enough. If the properties can't be
+ * read at all, assume MIUI on Xiaomi brands, as the brand check did before.
+ */
+internal val isMiui: Boolean by lazy {
+    val xiaomiBrand = listOf(Build.MANUFACTURER, Build.BRAND).any { brand ->
         listOf("Xiaomi", "Redmi", "POCO").any { brand.equals(it, ignoreCase = true) }
     }
+    if (!xiaomiBrand) return@lazy false
+    // MIUI sets the first, HyperOS both (e.g. "V816" and "OS3.0").
+    val versions = listOf("ro.miui.ui.version.name", "ro.mi.os.version.name").map(::systemProperty)
+    versions.all { it == null } || versions.any { !it.isNullOrEmpty() }
+}
