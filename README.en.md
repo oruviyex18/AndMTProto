@@ -72,7 +72,7 @@ New versions install over old ones and keep your settings. The exceptions are ve
 - **Check for updates**: opens the latest release page, where you can compare its version with the one shown in the app and download the new APK if needed
 - **Check for updates daily** (on by default): once a day AndMTProto checks the GitHub releases and shows a notification when a new version is out. Tapping it opens the release page
 - **Quick Settings tile**: turns the proxy on and off from the notification shade
-- **Start on boot**: the proxy starts by itself after a restart (after the first unlock)
+- **Start on boot**: the proxy starts by itself after a restart (after the first unlock); on by default
 - Hints for background work: battery optimisation and Autostart on Xiaomi (MIUI / HyperOS)
 
 ### Setting up Telegram
@@ -126,7 +126,7 @@ The proxy core is written in Python and runs inside the app through [Chaquopy](h
 
 > [!TIP]
 > ### Port already in use?
-> If another proxy on the phone already uses port `1443`, AndMTProto shows an error with a **Use port N** button. Tap it, then **Open in Telegram** → **Connect proxy** again.
+> On the first start after installing, AndMTProto picks the next free port by itself if `1443` is taken (e.g. by another proxy). If the port is taken later, it shows an error with a **Use port N** button. Tap it, then **Open in Telegram** → **Connect proxy** again.
 
 ## Automated builds
 

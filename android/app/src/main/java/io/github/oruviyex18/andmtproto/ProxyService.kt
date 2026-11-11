@@ -62,11 +62,25 @@ class ProxyService : Service() {
         }
         delay(STARTUP_POLL_MS)
         var shown: ProxyStatus? = null
+        var listened = false
         while (true) {
             val status = ProxyCore.poll()
             if (!status.running) {
-                stopSelf()  // bind error or crash; the error stays in ProxyCore.state
+                val free = firstRunFreePort(status)
+                if (free != null) {
+                    // First start after install and the default port is taken: move on.
+                    Log.i(TAG, "Port ${current.port} is in use on first start; using $free")
+                    settings = current.copy(port = free)
+                    SettingsStore(this).save(settings)
+                    runSession(settings, restart = false)
+                } else {
+                    stopSelf()  // bind error or crash; the error stays in ProxyCore.state
+                }
                 return
+            }
+            if (status.listening && !listened) {
+                listened = true
+                SettingsStore(this).autoPort = false // the port works; never change it again
             }
             if (status.active != shown?.active || status.listening != shown.listening) {
                 notify(buildNotification(status))
@@ -74,6 +88,15 @@ class ProxyService : Service() {
             }
             delay(POLL_MS)
         }
+    }
+
+    /** The free port the core suggested, if the port was busy and may still be changed. */
+    private fun firstRunFreePort(status: ProxyStatus): Int? {
+        val error = status.error?.takeIf { it.code == "port_in_use" } ?: return null
+        val store = SettingsStore(this)
+        if (!store.autoPort) return null
+        store.autoPort = false // once: a port that is busy again stays an error for the user
+        return error.suggestedPort
     }
 
     private fun enterForeground(): Boolean = try {

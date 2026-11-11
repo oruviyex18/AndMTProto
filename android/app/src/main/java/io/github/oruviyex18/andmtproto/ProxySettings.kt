@@ -1,6 +1,7 @@
 package io.github.oruviyex18.andmtproto
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.core.content.edit
 import org.json.JSONArray
 import org.json.JSONObject
@@ -39,8 +40,8 @@ data class ProxySettings(
     val forceTestDc: Boolean = false,
     val noSecure: Boolean = false,
     val verbose: Boolean = false,
-    /** Android-only; ignored by the Python core. */
-    val startOnBoot: Boolean = false,
+    /** Android-only; ignored by the Python core. On for new installs. */
+    val startOnBoot: Boolean = true,
     /** Android-only: the daily [UpdateCheck]. */
     val checkUpdates: Boolean = true,
 ) {
@@ -105,6 +106,7 @@ class SettingsStore(context: Context) {
         val stored = prefs.getString(KEY, null)?.let {
             runCatching { ProxySettings.fromJson(JSONObject(it)) }.getOrNull()
         }
+        if (stored == null) autoPort = true // fresh install: the default port may be taken
         val settings = stored ?: ProxySettings()
         if (settings.secret.isNotBlank()) return settings
         return settings.copy(secret = ProxySettings.newSecret()).also(::save)
@@ -116,7 +118,23 @@ class SettingsStore(context: Context) {
         UpdateCheck.schedule(appContext, settings.checkUpdates)
     }
 
+    /** Called when the saved settings (or [autoPort]) change, e.g. from ProxyService. */
+    fun registerListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) =
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+
+    fun unregisterListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) =
+        prefs.unregisterOnSharedPreferenceChangeListener(listener)
+
+    /**
+     * From a fresh install until the proxy first listens or the user sets a port
+     * themselves: a busy port is then replaced by a free one (see ProxyService).
+     */
+    var autoPort: Boolean
+        get() = prefs.getBoolean(KEY_AUTO_PORT, false)
+        set(value) = prefs.edit { putBoolean(KEY_AUTO_PORT, value) }
+
     private companion object {
         const val KEY = "config"
+        const val KEY_AUTO_PORT = "auto_port"
     }
 }
