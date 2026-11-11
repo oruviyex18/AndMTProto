@@ -45,13 +45,13 @@ AndMTProto прошёл проверку Google Play Защиты. Если Andr
 Чтобы система не останавливала прокси:
 - Нажмите **Разрешить работу в фоне** в AndMTProto. В открывшемся списке найдите AndMTProto и отключите для него оптимизацию батареи (названия пунктов зависят от телефона).
 - **Xiaomi, Redmi, POCO (MIUI / HyperOS):** нажмите **Разрешить работу в фоне**, выберите AndMTProto → «Контроль фоновой активности» → «Нет ограничений». Затем нажмите **Открыть настройки автозапуска** и включите автозапуск для AndMTProto.
-- По желанию включите **Запускать при включении телефона** — прокси запустится сам после перезагрузки (после первой разблокировки).
+- **Запускать при включении телефона** включено по умолчанию — прокси запустится сам после перезагрузки (после первой разблокировки). Отключается в настройках.
 - По желанию добавьте плитку **AndMTProto** в шторку быстрых настроек (карандаш «Изменить» в шторке) — ею можно включать и выключать прокси.
 
 > ⚠️ Пока Telegram настроен на этот прокси, он работает только при запущенном AndMTProto. Если вы выключили прокси, отключите его и в Telegram: **Данные и память** → **Настройки прокси**.
 
 ### 4. Если что-то не работает
-- **«Порт … уже занят другим приложением»** — на телефоне уже работает другой прокси на этом порту. Нажмите **Использовать порт N**, затем снова **Открыть в Telegram** и **Подключить прокси** (порт изменился).
+- **«Порт … уже занят другим приложением»** — на телефоне уже работает другой прокси на этом порту (при первом запуске после установки AndMTProto сам выбирает свободный порт). Нажмите **Использовать порт N**, затем снова **Открыть в Telegram** и **Подключить прокси** (порт изменился).
 - **Не загружаются фото и видео** — в **Настройках** в поле **DC → IP** оставьте только `4:149.154.167.220` или очистите его и вернитесь на главный экран — настройки сохранятся. Обычно это нужно на аккаунтах без Premium.
 - **Медиа или некоторые каналы грузятся медленно** — общий CF-прокси перегружен. Настройте свой бесплатный Cloudflare Worker или домен: кнопки **Инструкция CF Worker** и **Инструкция для домена CF** в настройках.
 - **Нужны подробности** — в **Настройках** откройте **Дополнительно** и включите **Подробный лог**, вернитесь на главный экран и нажмите **Лог** вверху.
@@ -74,7 +74,7 @@ SHA-256 сертификата подписи: `14:03:0C:3F:EE:D9:4B:9F:5F:21:CF
 
 **Install:** Android 7.0+, 64-bit ARM or x86_64. The app has passed Google Play Protect's review; if Android still warns it isn't from Google Play, tap **More details** → **Install anyway**. The app checks for a new version once a day and shows a notification (since 1.11.4-android.4; can be turned off in the settings); **Check for updates** opens the latest release. From 1.11.2-android.2 or newer, install over it (settings are kept). From 1.11.2-android.1 or a self-built debug APK, uninstall first (different signing key).
 
-**Set up:** tap the big start button, then **Open in Telegram** → **Connect proxy**. Manually: Telegram → Settings → Data and Storage → Proxy Settings → Add Proxy → MTProto, server `127.0.0.1`, port `1443`, key from **Copy link**. Tap **Allow background work** and turn optimisation off for AndMTProto; on Xiaomi pick AndMTProto → background activity control → No restrictions, and enable Autostart. Optional: **Start on boot** and the Quick Settings tile.
+**Set up:** tap the big start button, then **Open in Telegram** → **Connect proxy**. Manually: Telegram → Settings → Data and Storage → Proxy Settings → Add Proxy → MTProto, server `127.0.0.1`, port `1443`, key from **Copy link**. Tap **Allow background work** and turn optimisation off for AndMTProto; on Xiaomi pick AndMTProto → background activity control → No restrictions, and enable Autostart. **Start on boot** is on by default; optional: the Quick Settings tile.
 
 **Known issues:** DC 1, 3 and 5 may time out through the shared CF proxy; your own CF Worker or domain fixes this.
 

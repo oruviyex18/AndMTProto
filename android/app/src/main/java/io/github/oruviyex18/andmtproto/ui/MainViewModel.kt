@@ -2,6 +2,7 @@ package io.github.oruviyex18.andmtproto.ui
 
 import android.app.Application
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.annotation.StringRes
 import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
@@ -45,7 +46,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val miuiBackgroundDone: StateFlow<Boolean> = backgroundDone.state
     val miuiAutostartDone: StateFlow<Boolean> = autostartDone.state
 
+    /** ProxyService may move the port on the first start (see SettingsStore.autoPort). */
+    private val settingsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+        val saved = store.load()
+        if (saved == _saved.value) return@OnSharedPreferenceChangeListener
+        val untouched = _draft.value == SettingsDraft(_saved.value)
+        _saved.value = saved
+        _telegramLinked.value = isLinked(saved)
+        if (untouched) _draft.value = SettingsDraft(saved)
+    }
+
     init {
+        store.registerListener(settingsListener)
         ProxyCore.refresh()
         viewModelScope.launch {
             status.collect { if (it.running && it.routed > 0) markLinked() }
@@ -70,6 +82,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             is SettingsDraft.Parsed.Valid -> parsed.settings
         }
         if (settings == _saved.value) return SaveResult.Unchanged
+        if (settings.port != _saved.value.port) store.autoPort = false // the user's choice
         persist(settings)
         _draft.value = SettingsDraft(settings)
         val restart = status.value.running
@@ -79,6 +92,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Saves [newPort] (suggested after a bind error), keeping other unsaved edits. */
     fun usePort(newPort: Int) {
+        store.autoPort = false
         persist(_saved.value.copy(port = newPort))
         _draft.update { it.edit { copy(port = newPort) }.copy(port = newPort.toString()) }
     }
@@ -141,6 +155,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun linkKey(settings: ProxySettings) =
         "${settings.port}:${settings.secret.hashCode()}:${settings.fakeTlsDomain}"
+
+    override fun onCleared() {
+        store.unregisterListener(settingsListener)
+    }
 
     private fun persist(settings: ProxySettings) {
         store.save(settings)
