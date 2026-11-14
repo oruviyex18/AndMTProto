@@ -67,9 +67,33 @@ object ProxyCore {
     private val _state = MutableStateFlow(ProxyStatus())
     val state: StateFlow<ProxyStatus> = _state.asStateFlow()
 
+    private val _stalled = MutableStateFlow(false)
+
+    /**
+     * Telegram keeps connecting but nothing gets through, even after ProxyService
+     * restarted the core by itself; the main screen then suggests what to try.
+     */
+    val stalled: StateFlow<Boolean> = _stalled.asStateFlow()
+
+    fun setStalled(value: Boolean) {
+        _stalled.value = value
+    }
+
+    /** Writes [message] to the proxy log (dropped before the first start sets the log up). */
+    fun note(message: String) {
+        scope.launch {
+            try {
+                module.callAttr("note", message)
+            } catch (e: Exception) {
+                Log.w(TAG, "Cannot write to the proxy log", e)
+            }
+        }
+    }
+
     /** Starts the proxy thread; returns the config error, or null once it is starting. */
     suspend fun start(context: Context, settings: ProxySettings): ProxyError? = withContext(dispatcher) {
         val logDir = logDir(context).absolutePath
+        _stalled.value = false
         val error = module.callAttr("start", settings.toJson().toString(), logDir)
             ?.let { ProxyError.fromJson(JSONObject(it.toString())) }
         readStatus()
@@ -77,6 +101,7 @@ object ProxyCore {
     }
 
     suspend fun stop() = withContext(dispatcher) {
+        _stalled.value = false
         module.callAttr("stop")
         readStatus()
     }
@@ -103,6 +128,19 @@ object ProxyCore {
     }
 
     fun logDir(context: Context): File = File(context.filesDir, "logs")
+
+    /**
+     * The whole proxy log (the previous file, then the current one) copied into one
+     * file under cache/shared-logs for sharing; null if there is no log yet.
+     */
+    fun fullLogSnapshot(context: Context): File? {
+        val parts = listOf("proxy.log.1", "proxy.log").map { File(logDir(context), it) }.filter { it.exists() }
+        if (parts.isEmpty()) return null
+        val dir = File(context.cacheDir, "shared-logs").apply { mkdirs() }
+        val out = File(dir, "andmtproto-log.txt")
+        out.outputStream().use { sink -> parts.forEach { part -> part.inputStream().use { it.copyTo(sink) } } }
+        return out
+    }
 
     /** The last [maxLines] lines of the proxy log, reading at most the last 64 KB. */
     fun readLogTail(context: Context, maxLines: Int = 300): String {

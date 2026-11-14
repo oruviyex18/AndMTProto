@@ -32,6 +32,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.oruviyex18.andmtproto.BuildConfig
+import io.github.oruviyex18.andmtproto.ProxyCore
 import io.github.oruviyex18.andmtproto.ProxyService
 import io.github.oruviyex18.andmtproto.R
 
@@ -60,6 +61,7 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
     val status by vm.status.collectAsStateWithLifecycle()
     val linked by vm.telegramLinked.collectAsStateWithLifecycle()
     val update by vm.update.collectAsStateWithLifecycle()
+    val stalled by ProxyCore.stalled.collectAsStateWithLifecycle()
     val miuiBackgroundDone by vm.miuiBackgroundDone.collectAsStateWithLifecycle()
     val miuiAutostartDone by vm.miuiAutostartDone.collectAsStateWithLifecycle()
     val startProxy = rememberProxyStarter()
@@ -99,6 +101,9 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
                     vm.usePort(port)
                     startProxy()
                 })
+            }
+            if (status.state == ProxyState.RUNNING && stalled) {
+                StalledCard(onRestart = { ProxyService.start(context, restart = true) })
             }
             if (status.state == ProxyState.RUNNING) {
                 TelegramCard(

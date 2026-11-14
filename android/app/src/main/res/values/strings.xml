@@ -86,6 +86,9 @@
     <string name="card_background_title">Background work</string>
     <string name="settings_saved_on_leave">Changes are saved when you leave Settings; a running proxy restarts with them.</string>
     <string name="card_autostart_title">Autostart</string>
+    <string name="card_stalled_title">Telegram can’t get through</string>
+    <string name="card_stalled_body">Telegram keeps connecting, but nothing gets through the current network, even after an automatic restart of the proxy. Switch between Wi-Fi and mobile data, or turn airplane mode on and off. On mobile data your own CF Worker (Settings → Route) is more reliable than the shared CF domains.</string>
+    <string name="restart_proxy">Restart proxy</string>
     <string name="card_done">Done</string>
     <string name="card_update_body">You have %1$s. Open the release page to download the APK.</string>
     <string name="card_later">Later</string>
@@ -108,5 +111,5 @@
     <string name="log_errors">Errors</string>
     <string name="log_copied">Log copied</string>
     <string name="copy">Copy</string>
-    <string name="share">Share</string>
+    <string name="share_full_log">Send full log</string>
 </resources>
