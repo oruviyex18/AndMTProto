@@ -83,6 +83,9 @@
     <string name="card_background_title">Работа в фоне</string>
     <string name="settings_saved_on_leave">Изменения сохраняются при выходе из настроек; работающий прокси перезапустится с ними.</string>
     <string name="card_autostart_title">Автозапуск</string>
+    <string name="card_stalled_title">Telegram не может подключиться</string>
+    <string name="card_stalled_body">Telegram подключается, но через текущую сеть ничего не проходит — даже после автоматического перезапуска прокси. Переключитесь между Wi-Fi и мобильным интернетом или включите и выключите режим полёта. На мобильном интернете свой CF Worker (Настройки → Маршрут) работает надёжнее общих CF-доменов.</string>
+    <string name="restart_proxy">Перезапустить прокси</string>
     <string name="card_done">Готово</string>
     <string name="card_update_body">У вас %1$s. Откройте страницу релиза, чтобы скачать APK.</string>
     <string name="card_later">Позже</string>
@@ -105,5 +108,5 @@
     <string name="log_errors">Ошибки</string>
     <string name="log_copied">Лог скопирован</string>
     <string name="copy">Копировать</string>
-    <string name="share">Поделиться</string>
+    <string name="share_full_log">Отправить весь лог</string>
 </resources>

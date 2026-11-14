@@ -87,6 +87,23 @@ internal fun ErrorCard(error: ProxyError, running: Boolean, onUsePort: (Int) -> 
     }
 }
 
+/**
+ * Telegram keeps connecting but nothing gets through even after the automatic
+ * restart: the network itself is the likely cause (e.g. a stuck mobile-data
+ * connection, or one that blocks both Telegram and the shared CF domains).
+ */
+@Composable
+internal fun StalledCard(onRestart: () -> Unit) {
+    AttentionCard(
+        title = stringResource(R.string.card_stalled_title),
+        body = stringResource(R.string.card_stalled_body),
+        container = MaterialTheme.colorScheme.errorContainer,
+        content = MaterialTheme.colorScheme.onErrorContainer,
+    ) {
+        TextButton(onClick = onRestart) { Text(stringResource(R.string.restart_proxy)) }
+    }
+}
+
 /** A newer release found by the daily check; "Later" hides it until the next version. */
 @Composable
 internal fun UpdateCard(update: UpdateCheck.Available, onLater: () -> Unit) {

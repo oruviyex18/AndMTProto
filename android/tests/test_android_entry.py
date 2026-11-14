@@ -1,5 +1,6 @@
 """Desktop smoke test for the Android adapter; runs against the upstream proxy/."""
 import json
+import re
 import os
 import socket
 import sys
@@ -381,5 +382,21 @@ def test_status_counts_rejected_handshakes(tmp_path):
         assert json.loads(android_entry.status())["bad_recent"] == 0
         _send_bad_handshakes(port, 1)
         assert _wait(lambda: json.loads(android_entry.status())["bad_recent"] == 1)
+    finally:
+        android_entry.stop()
+
+
+def test_note_writes_dated_line_to_log(tmp_path):
+    """Lines from the Android side (network changes, automatic restarts) land in
+    the proxy log, and the log file carries dates so a shared log can be read later."""
+    cfg = _cfg()
+    try:
+        assert android_entry.start(cfg, str(tmp_path)) is None
+        android_entry.note("Network changed to mobile data; restarting the proxy core")
+        # The file handler is set up once per process; read whichever file it writes.
+        with open(android_entry._log_handler.baseFilename, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        assert any(re.match(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d  INFO   AndMTProto: Network changed to "
+                            r"mobile data; restarting the proxy core$", line) for line in lines)
     finally:
         android_entry.stop()

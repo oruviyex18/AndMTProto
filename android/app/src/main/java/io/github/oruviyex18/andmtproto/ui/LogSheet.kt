@@ -1,5 +1,7 @@
 package io.github.oruviyex18.andmtproto.ui
 
+import android.content.ClipData
+import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -34,9 +37,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import io.github.oruviyex18.andmtproto.ProxyCore
 import io.github.oruviyex18.andmtproto.R
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private enum class LogFilter(val label: Int, val levels: Set<String>?) {
@@ -45,8 +50,8 @@ private enum class LogFilter(val label: Int, val levels: Set<String>?) {
     ERRORS(R.string.log_errors, setOf("ERROR")),
 }
 
-/** "12:34:56  WARNING ..." → WARNING: the level of a log entry's first line. */
-private val LOG_LEVEL = Regex("""^\d\d:\d\d:\d\d\s+(\w+)""")
+/** "2026-11-14 12:34:56  WARNING ..." (older logs: no date) → WARNING: an entry's level. */
+private val LOG_LEVEL = Regex("""^(?:\d{4}-\d\d-\d\d )?\d\d:\d\d:\d\d\s+(\w+)""")
 
 /** Lines of [text] at one of [levels]; continuation lines (tracebacks) follow their entry. */
 private fun filterLog(text: String, levels: Set<String>?): String {
@@ -59,11 +64,33 @@ private fun filterLog(text: String, levels: Set<String>?): String {
     }.joinToString("\n")
 }
 
+/**
+ * Sends the whole log (both rotated files) as one text file, so it arrives intact
+ * instead of split into chat messages. The secret is already redacted in it.
+ */
+private suspend fun shareFullLog(context: Context) {
+    val file = withContext(Dispatchers.IO) { ProxyCore.fullLogSnapshot(context) }
+    if (file == null) {
+        context.toast(R.string.logs_empty)
+        return
+    }
+    val uri = FileProvider.getUriForFile(context, context.packageName + ".logs", file)
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        putExtra(Intent.EXTRA_SUBJECT, "AndMTProto log")
+        clipData = ClipData.newRawUri(null, uri) // lets the chooser preview and pass on the grant
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivitySafely(Intent.createChooser(send, null))
+}
+
 /** The tail of the proxy log in a bottom sheet. The core's log has the secret redacted. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LogSheet(onDismiss: () -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var filter by rememberSaveable { mutableStateOf(LogFilter.ALL) }
     var refreshes by remember { mutableIntStateOf(0) }
     var text by remember { mutableStateOf("") }
@@ -104,10 +131,9 @@ fun LogSheet(onDismiss: () -> Unit) {
                 OutlinedButton(onClick = { context.copyToClipboard(shown, R.string.log_copied) }, Modifier.weight(1f)) {
                     Text(stringResource(R.string.copy))
                 }
-                Button(onClick = {
-                    val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, shown)
-                    context.startActivitySafely(Intent.createChooser(send, null))
-                }, Modifier.weight(1f)) { Text(stringResource(R.string.share)) }
+                Button(onClick = { scope.launch { shareFullLog(context) } }, Modifier.weight(1f)) {
+                    Text(stringResource(R.string.share_full_log))
+                }
             }
         }
     }

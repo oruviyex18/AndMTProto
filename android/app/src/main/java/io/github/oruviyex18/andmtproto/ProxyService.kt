@@ -7,8 +7,11 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -29,7 +32,39 @@ class ProxyService : Service() {
     private var session: Job? = null
     private var settings = ProxySettings()
 
+    private val connectivity by lazy { getSystemService(ConnectivityManager::class.java) }
+    private var network: Network? = null
+    private var networkLost = false
+    private var pendingRestart: Job? = null
+
+    /** When the watchdog last restarted the core (elapsedRealtime); at most once per cooldown. */
+    private var autoRestartAt = NEVER
+
+    /**
+     * Follows the system's default network. Connections the core opened on the old
+     * network (its WebSocket and CF pools) die silently when it changes, so the core
+     * is restarted on the new one; see [onDefaultNetwork].
+     */
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(n: Network) {
+            scope.launch { onDefaultNetwork(n) }
+        }
+
+        override fun onLost(n: Network) {
+            scope.launch { onNetworkLost(n) }
+        }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        try {
+            connectivity.registerDefaultNetworkCallback(networkCallback)
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "Cannot follow network changes", e)
+        }
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -49,6 +84,11 @@ class ProxyService : Service() {
     }
 
     override fun onDestroy() {
+        try {
+            connectivity.unregisterNetworkCallback(networkCallback)
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "Cannot stop following network changes", e)
+        }
         scope.cancel()
         ProxyCore.stopInBackground()
         super.onDestroy()
@@ -60,9 +100,11 @@ class ProxyService : Service() {
             stopSelf()  // config error; it stays in ProxyCore.state for the UI
             return
         }
+        ProxyCore.note("Network: ${connectivity.describe(network ?: connectivity.activeNetwork)}")
         delay(STARTUP_POLL_MS)
         var shown: ProxyStatus? = null
         var listened = false
+        val stalls = StallDetector()
         while (true) {
             val status = ProxyCore.poll()
             if (!status.running) {
@@ -82,12 +124,76 @@ class ProxyService : Service() {
                 listened = true
                 SettingsStore(this).autoPort = false // the port works; never change it again
             }
+            if (status.listening && watchStall(stalls, status)) return
             if (status.active != shown?.active || status.listening != shown.listening) {
                 notify(buildNotification(status))
                 shown = status
             }
             delay(POLL_MS)
         }
+    }
+
+    /**
+     * When nothing has got through for a minute although Telegram keeps trying,
+     * restarts the core once (fresh pools, DNS and CF domain choice); if that
+     * doesn't help either, tells the UI. Returns true when this session was replaced.
+     */
+    private fun watchStall(stalls: StallDetector, status: ProxyStatus): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        val stuck = stalls.update(status, now)
+        if (stalls.progressed && ProxyCore.stalled.value) ProxyCore.setStalled(false)
+        if (!stuck) return false
+        if (now - autoRestartAt >= AUTO_RESTART_COOLDOWN_MS) {
+            autoRestartAt = now
+            ProxyCore.note(
+                "Nothing got through for a minute although Telegram keeps connecting; restarting the proxy core"
+            )
+            restartSession()
+            return true
+        }
+        if (!ProxyCore.stalled.value) {
+            ProxyCore.note("Still nothing gets through after the restart, over ${connectivity.describe(network)}")
+            ProxyCore.setStalled(true)
+        }
+        return false
+    }
+
+    /** Replaces the running session with a fresh core; safe to call from that session. */
+    private fun restartSession() {
+        val old = session
+        session = scope.launch {
+            old?.cancel()
+            runSession(settings, restart = true)
+        }
+    }
+
+    private fun onDefaultNetwork(n: Network) {
+        val previous = network
+        network = n
+        if (previous == n) return
+        if (previous == null && !networkLost) return // the first report after the service starts
+        val name = connectivity.describe(n)
+        ProxyCore.note(
+            if (networkLost) "Network is back ($name); restarting the proxy core"
+            else "Network changed to $name; restarting the proxy core"
+        )
+        networkLost = false
+        // Networks flap while switching (Wi-Fi reconnected 3 times in 20 s once):
+        // restart once things have settled.
+        pendingRestart?.cancel()
+        pendingRestart = scope.launch {
+            delay(NETWORK_SETTLE_MS)
+            autoRestartAt = NEVER // a new network gets its own watchdog restart
+            restartSession()
+        }
+    }
+
+    private fun onNetworkLost(n: Network) {
+        if (n != network) return
+        network = null
+        networkLost = true
+        pendingRestart?.cancel()
+        ProxyCore.note("Network lost; waiting for it to come back")
     }
 
     /** The free port the core suggested, if the port was busy and may still be changed. */
@@ -152,6 +258,9 @@ class ProxyService : Service() {
         private const val NOTIFICATION_ID = 1
         private const val POLL_MS = 2_000L
         private const val STARTUP_POLL_MS = 500L
+        private const val NETWORK_SETTLE_MS = 3_000L
+        private const val AUTO_RESTART_COOLDOWN_MS = 10 * 60_000L
+        private const val NEVER = Long.MIN_VALUE / 2
         private const val ACTION_START = "start"
         private const val ACTION_RESTART = "restart"
         private const val ACTION_STOP = "stop"

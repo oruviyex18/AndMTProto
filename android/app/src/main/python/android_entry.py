@@ -221,6 +221,9 @@ def _setup_logging(log_dir: str, cfg: Dict[str, Any]) -> None:
 
     fmt = logging.Formatter('%(asctime)s  %(levelname)-5s  %(message)s',
                             datefmt='%H:%M:%S')
+    # The file keeps the date too: it is shared and read days later; logcat has its own.
+    file_fmt = logging.Formatter('%(asctime)s  %(levelname)-5s  %(message)s',
+                                 datefmt='%Y-%m-%d %H:%M:%S')
     os.makedirs(log_dir, exist_ok=True)
     for name in ('proxy.log', 'proxy.log.1'):
         _scrub_logged_secrets(os.path.join(log_dir, name))
@@ -230,8 +233,9 @@ def _setup_logging(log_dir: str, cfg: Dict[str, Any]) -> None:
         backupCount=1, encoding='utf-8')
     # Chaquopy forwards stderr to logcat.
     console = logging.StreamHandler(sys.stderr)
+    fh.setFormatter(file_fmt)
+    console.setFormatter(fmt)
     for h in (fh, console):
-        h.setFormatter(fmt)
         h.addFilter(DomainCensorFilter())
         h.addFilter(SecretCensorFilter())
         root.addHandler(h)
@@ -524,6 +528,12 @@ def status() -> str:
         "bytes_up": stats.bytes_up,
         "bytes_down": stats.bytes_down,
     })
+
+
+def note(message: str) -> None:
+    """A line from the Android side (network changes, automatic restarts) in
+    the proxy log, so a shared log shows what the app did and why."""
+    log.info("AndMTProto: %s", message)
 
 
 def proxy_link(cfg_json: str) -> str:
