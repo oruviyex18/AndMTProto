@@ -46,8 +46,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val miuiBackgroundDone: StateFlow<Boolean> = backgroundDone.state
     val miuiAutostartDone: StateFlow<Boolean> = autostartDone.state
 
+    private val _noSecureAuto = MutableStateFlow(store.noSecureAuto)
+
+    /** ProxyService turned "No TLS for CF" on by itself (see SettingsStore.noSecureAuto). */
+    val noSecureAuto: StateFlow<Boolean> = _noSecureAuto.asStateFlow()
+
     /** ProxyService may move the port on the first start (see SettingsStore.autoPort). */
     private val settingsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+        _noSecureAuto.value = store.noSecureAuto
         val saved = store.load()
         if (saved == _saved.value) return@OnSharedPreferenceChangeListener
         val untouched = _draft.value == SettingsDraft(_saved.value)
@@ -83,6 +89,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         if (settings == _saved.value) return SaveResult.Unchanged
         if (settings.port != _saved.value.port) store.autoPort = false // the user's choice
+        if (settings.noSecure != _saved.value.noSecure) store.noSecureAuto = false // ditto
         persist(settings)
         _draft.value = SettingsDraft(settings)
         val restart = status.value.running
@@ -112,6 +119,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun dismissUpdate() {
         _update.value?.let { UpdateCheck.dismiss(getApplication(), it.version) }
         _update.value = null
+    }
+
+    fun dismissNoSecureAuto() {
+        store.noSecureAuto = false
+        _noSecureAuto.value = false
     }
 
     fun markMiuiBackgroundDone() = backgroundDone.set()

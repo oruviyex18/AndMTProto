@@ -6,7 +6,8 @@ _run_proxy_thread, stop_proxy) without the desktop-only dependencies.
 Review this file whenever upstream changes ProxyConfig, _run() or the
 tray lifecycle code.
 
-Kotlin (ProxyCore.kt) calls only start(), stop(), status() and proxy_link();
+Kotlin (ProxyCore.kt) calls only start(), stop(), status(), note(),
+probe_cf() and proxy_link();
 config and status travel as JSON strings. Errors reach Kotlin as
 {"code", "detail", "suggested_port"} so the UI can show them in its own
 language. Codes: bad_secret, bad_port, bad_dc_ip, bad_fake_tls,
@@ -21,6 +22,7 @@ import json
 import logging
 import logging.handlers
 import os
+import random
 import re
 import functools
 import ipaddress
@@ -33,7 +35,10 @@ import time
 from typing import Any, Deque, Dict, List, Optional, Tuple
 
 from proxy import __version__
-from proxy.config import coerce_domain_list, parse_dc_ip_list, proxy_config
+from proxy.balancer import balancer
+from proxy.config import (CFPROXY_DEFAULT_DOMAINS, coerce_domain_list,
+                          parse_dc_ip_list, proxy_config)
+from proxy.raw_websocket import RawWebSocket
 from proxy.stats import stats
 from proxy import tg_ws_proxy
 from proxy import utils as proxy_utils
@@ -528,6 +533,46 @@ def status() -> str:
         "bytes_up": stats.bytes_up,
         "bytes_down": stats.bytes_down,
     })
+
+
+_PROBE_DOMAINS = 3
+_PROBE_TIMEOUT_S = 6.0
+
+
+async def _ws_opens(domain: str, secure: bool, timeout: float) -> bool:
+    """True if a WebSocket to `domain` opens the way the core opens it."""
+    try:
+        ws = await asyncio.wait_for(
+            RawWebSocket.connect(domain, domain, timeout=timeout, secure=secure),
+            timeout=timeout)
+    except Exception:
+        return False
+    ws.writer.close()
+    return True
+
+
+async def _probe_cf(domains: List[str], timeout: float) -> Dict[str, bool]:
+    hosts = [f"kws2.{d}" for d in domains]
+    results = await asyncio.gather(
+        *(_ws_opens(h, secure, timeout) for secure in (True, False) for h in hosts))
+    return {"tls": any(results[:len(hosts)]), "plain": any(results[len(hosts):])}
+
+
+def probe_cf(timeout: float = _PROBE_TIMEOUT_S) -> str:
+    """Whether the CF proxy opens over TLS (port 443) and without it (port 80).
+
+    Russian DPI cut TLS to the shared CF domains by their name (SNI) on
+    16 Nov 2026 while plain HTTP to them kept working; ProxyService uses this
+    to tell that apart from a dead network. Tries a few domains at once in its
+    own event loop, so it can run next to the proxy thread. Returns JSON
+    {"tls": bool, "plain": bool}, or {} when the CF proxy is off.
+    """
+    if not proxy_config.fallback_cfproxy:
+        return json.dumps({})
+    pool = list(balancer.domains or proxy_config.cfproxy_user_domains
+                or CFPROXY_DEFAULT_DOMAINS)
+    domains = random.sample(pool, min(_PROBE_DOMAINS, len(pool)))
+    return json.dumps(asyncio.run(_probe_cf(domains, timeout)))
 
 
 def note(message: str) -> None:

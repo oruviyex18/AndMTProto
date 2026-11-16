@@ -5,6 +5,7 @@ import android.util.Log
 import com.chaquo.python.Python
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -93,17 +94,31 @@ object ProxyCore {
     /** Starts the proxy thread; returns the config error, or null once it is starting. */
     suspend fun start(context: Context, settings: ProxySettings): ProxyError? = withContext(dispatcher) {
         val logDir = logDir(context).absolutePath
-        _stalled.value = false
         val error = module.callAttr("start", settings.toJson().toString(), logDir)
             ?.let { ProxyError.fromJson(JSONObject(it.toString())) }
         readStatus()
         error
     }
 
-    suspend fun stop() = withContext(dispatcher) {
-        _stalled.value = false
+    /** [keepStalled]: an automatic restart, which by itself doesn't mean data flows again. */
+    suspend fun stop(keepStalled: Boolean = false) = withContext(dispatcher) {
+        if (!keepStalled) _stalled.value = false
         module.callAttr("stop")
         readStatus()
+    }
+
+    /** Whether the CF proxy opens over TLS and without it; null if CF is off or the probe failed. */
+    data class CfProbe(val tls: Boolean, val plain: Boolean)
+
+    /** Runs android_entry.probe_cf (several seconds) off the lifecycle thread, so polls go on. */
+    suspend fun probeCf(): CfProbe? = withContext(Dispatchers.IO) {
+        try {
+            val o = JSONObject(module.callAttr("probe_cf").toString())
+            if (o.has("tls")) CfProbe(o.getBoolean("tls"), o.getBoolean("plain")) else null
+        } catch (e: Exception) {
+            Log.w(TAG, "CF probe failed", e)
+            null
+        }
     }
 
     /** Reads the current status from Python and publishes it to [state]. */

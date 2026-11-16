@@ -62,6 +62,7 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
     val linked by vm.telegramLinked.collectAsStateWithLifecycle()
     val update by vm.update.collectAsStateWithLifecycle()
     val stalled by ProxyCore.stalled.collectAsStateWithLifecycle()
+    val noSecureAuto by vm.noSecureAuto.collectAsStateWithLifecycle()
     val miuiBackgroundDone by vm.miuiBackgroundDone.collectAsStateWithLifecycle()
     val miuiAutostartDone by vm.miuiAutostartDone.collectAsStateWithLifecycle()
     val startProxy = rememberProxyStarter()
@@ -105,6 +106,7 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
             if (status.state == ProxyState.RUNNING && stalled) {
                 StalledCard(onRestart = { ProxyService.start(context, restart = true) })
             }
+            if (noSecureAuto) NoSecureAutoCard(onDismiss = vm::dismissNoSecureAuto)
             if (status.state == ProxyState.RUNNING) {
                 TelegramCard(
                     linked = linked,

@@ -104,6 +104,17 @@ internal fun StalledCard(onRestart: () -> Unit) {
     }
 }
 
+/** ProxyService turned "No TLS for CF" on by itself; says why until the user closes it. */
+@Composable
+internal fun NoSecureAutoCard(onDismiss: () -> Unit) {
+    AttentionCard(
+        title = stringResource(R.string.card_no_secure_auto_title),
+        body = stringResource(R.string.card_no_secure_auto_body),
+    ) {
+        TextButton(onClick = onDismiss) { Text(stringResource(R.string.card_done)) }
+    }
+}
+
 /** A newer release found by the daily check; "Later" hides it until the next version. */
 @Composable
 internal fun UpdateCard(update: UpdateCheck.Available, onLater: () -> Unit) {

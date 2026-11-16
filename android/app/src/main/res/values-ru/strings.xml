@@ -86,6 +86,8 @@
     <string name="card_stalled_title">Telegram не может подключиться</string>
     <string name="card_stalled_body">Telegram подключается, но через текущую сеть ничего не проходит — даже после автоматического перезапуска прокси. Переключитесь между Wi-Fi и мобильным интернетом или включите и выключите режим полёта. На мобильном интернете свой CF Worker (Настройки → Маршрут) работает надёжнее общих CF-доменов.</string>
     <string name="restart_proxy">Перезапустить прокси</string>
+    <string name="card_no_secure_auto_title">CF-прокси работает без TLS</string>
+    <string name="card_no_secure_auto_body">Сеть блокирует CF-прокси по TLS, но пропускает его без TLS, поэтому AndMTProto сам включил «Без TLS для CF proxy/worker (порт 80)». Переписка по-прежнему зашифрована самим Telegram. Выключить можно в Настройках.</string>
     <string name="card_done">Готово</string>
     <string name="card_update_body">У вас %1$s. Откройте страницу релиза, чтобы скачать APK.</string>
     <string name="card_later">Позже</string>

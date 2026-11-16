@@ -37,6 +37,13 @@ class ProxyService : Service() {
     private var networkLost = false
     private var pendingRestart: Job? = null
 
+    /** The network the running core started on, and whether it was lost since. */
+    private var coreNetwork: Network? = null
+    private var lostSinceStart = false
+
+    /** The network the CF transport was last checked on (see [switchCfTransport]). */
+    private var probedOn: Network? = null
+
     /** When the watchdog last restarted the core (elapsedRealtime); at most once per cooldown. */
     private var autoRestartAt = NEVER
 
@@ -79,6 +86,7 @@ class ProxyService : Service() {
         val restart = intent?.action == ACTION_RESTART
         // One session at a time: a restart replaces the running poll loop.
         session?.cancel()
+        if (restart) ProxyCore.setStalled(false) // the user asked; the card returns only if still stuck
         session = scope.launch { runSession(settings, restart) }
         return START_STICKY
     }
@@ -95,12 +103,14 @@ class ProxyService : Service() {
     }
 
     private suspend fun runSession(current: ProxySettings, restart: Boolean) {
-        if (restart) ProxyCore.stop()
+        if (restart) ProxyCore.stop(keepStalled = true)
         if (ProxyCore.start(this, current) != null) {
             stopSelf()  // config error; it stays in ProxyCore.state for the UI
             return
         }
-        ProxyCore.note("Network: ${connectivity.describe(network ?: connectivity.activeNetwork)}")
+        coreNetwork = network ?: connectivity.activeNetwork
+        lostSinceStart = false
+        ProxyCore.note("Network: ${connectivity.describe(coreNetwork)}")
         delay(STARTUP_POLL_MS)
         var shown: ProxyStatus? = null
         var listened = false
@@ -135,14 +145,16 @@ class ProxyService : Service() {
 
     /**
      * When nothing has got through for a minute although Telegram keeps trying,
-     * restarts the core once (fresh pools, DNS and CF domain choice); if that
+     * first checks whether only the CF proxy's TLS is blocked ([switchCfTransport]),
+     * then restarts the core once (fresh pools, DNS and CF domain choice); if that
      * doesn't help either, tells the UI. Returns true when this session was replaced.
      */
-    private fun watchStall(stalls: StallDetector, status: ProxyStatus): Boolean {
+    private suspend fun watchStall(stalls: StallDetector, status: ProxyStatus): Boolean {
         val now = SystemClock.elapsedRealtime()
         val stuck = stalls.update(status, now)
         if (stalls.progressed && ProxyCore.stalled.value) ProxyCore.setStalled(false)
         if (!stuck) return false
+        if (switchCfTransport()) return true
         if (now - autoRestartAt >= AUTO_RESTART_COOLDOWN_MS) {
             autoRestartAt = now
             ProxyCore.note(
@@ -156,6 +168,42 @@ class ProxyService : Service() {
             ProxyCore.setStalled(true)
         }
         return false
+    }
+
+    /**
+     * On 16 Nov 2026 Russian DPI began cutting TLS to the shared CF proxy domains by
+     * name, while the same domains kept working over plain HTTP (port 80). Then
+     * nothing gets through although the network is fine. Checks that once per
+     * network and, if so, turns on "No TLS for CF" by itself and restarts; it turns
+     * it back off only if it turned it on and port 80 is the one blocked now.
+     * Returns true when this session was replaced.
+     */
+    private suspend fun switchCfTransport(): Boolean {
+        val store = SettingsStore(this)
+        val current = network ?: connectivity.activeNetwork
+        if (!settings.cfproxy || current == null || current == probedOn) return false
+        if (settings.noSecure && !store.noSecureAuto) return false // the user's own choice
+        probedOn = current
+        val probe = ProxyCore.probeCf() ?: return false
+        fun word(ok: Boolean) = if (ok) "opens" else "blocked"
+        ProxyCore.note(
+            "CF proxy check over ${connectivity.describe(current)}: " +
+                "TLS ${word(probe.tls)}, without TLS ${word(probe.plain)}"
+        )
+        val noSecure = when {
+            !settings.noSecure && !probe.tls && probe.plain -> true
+            settings.noSecure && !probe.plain && probe.tls -> false
+            else -> return false
+        }
+        ProxyCore.note(
+            if (noSecure) "Turning on \"No TLS for CF\": this network blocks the CF proxy over TLS only"
+            else "Turning \"No TLS for CF\" back off: TLS works on this network and port 80 doesn't"
+        )
+        settings = settings.copy(noSecure = noSecure)
+        store.save(settings)
+        store.noSecureAuto = noSecure
+        restartSession()
+        return true
     }
 
     /** Replaces the running session with a fresh core; safe to call from that session. */
@@ -172,17 +220,25 @@ class ProxyService : Service() {
         network = n
         if (previous == n) return
         if (previous == null && !networkLost) return // the first report after the service starts
-        val name = connectivity.describe(n)
+        val back = networkLost
         ProxyCore.note(
-            if (networkLost) "Network is back ($name); restarting the proxy core"
-            else "Network changed to $name; restarting the proxy core"
+            if (back) "Network is back (${connectivity.describe(n)})"
+            else "Network changed to ${connectivity.describe(n)}"
         )
         networkLost = false
-        // Networks flap while switching (Wi-Fi reconnected 3 times in 20 s once):
-        // restart once things have settled.
+        // Networks flap while switching: Wi-Fi reconnected 3 times in 20 s once, and
+        // weak Wi-Fi swapped with mobile data every ~12 s on 16 Nov. A return after a
+        // loss restarts soon; a switch waits longer, and is dropped if the phone is
+        // back on the network the core runs on by then.
         pendingRestart?.cancel()
         pendingRestart = scope.launch {
-            delay(NETWORK_SETTLE_MS)
+            delay(if (back) NETWORK_BACK_SETTLE_MS else NETWORK_SWITCH_SETTLE_MS)
+            val now = network
+            if (now == coreNetwork && !lostSinceStart) {
+                ProxyCore.note("Back on ${connectivity.describe(now)}, where the proxy core runs; not restarting")
+                return@launch
+            }
+            ProxyCore.note("Restarting the proxy core on ${connectivity.describe(now)}")
             autoRestartAt = NEVER // a new network gets its own watchdog restart
             restartSession()
         }
@@ -192,6 +248,7 @@ class ProxyService : Service() {
         if (n != network) return
         network = null
         networkLost = true
+        lostSinceStart = true
         pendingRestart?.cancel()
         ProxyCore.note("Network lost; waiting for it to come back")
     }
@@ -258,7 +315,8 @@ class ProxyService : Service() {
         private const val NOTIFICATION_ID = 1
         private const val POLL_MS = 2_000L
         private const val STARTUP_POLL_MS = 500L
-        private const val NETWORK_SETTLE_MS = 3_000L
+        private const val NETWORK_BACK_SETTLE_MS = 3_000L
+        private const val NETWORK_SWITCH_SETTLE_MS = 15_000L
         private const val AUTO_RESTART_COOLDOWN_MS = 10 * 60_000L
         private const val NEVER = Long.MIN_VALUE / 2
         private const val ACTION_START = "start"

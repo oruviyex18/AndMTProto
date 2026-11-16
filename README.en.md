@@ -69,7 +69,8 @@ New versions install over old ones and keep your settings. The exceptions are ve
 - **Hint cards**: background work, errors, redundant proxies in Telegram, a new version; they go away once the problem is solved
 - **Settings** (top bar): connection, route, masking (Fake TLS), app and advanced options. The secret is hidden. Changes are saved when you leave Settings, and a running proxy restarts
 - **Log** (top bar): the latest log lines with a warnings / errors filter and copy; **Send full log** shares the whole log as a file (with dates). The secret is hidden in the log
-- **Network changes**: when the phone switches between Wi-Fi and mobile data, or after airplane mode, the proxy restarts on the new network by itself. If nothing gets through for a minute while Telegram keeps trying, it restarts once more, and if that doesn't help a card says what to try
+- **CF blocked over TLS**: if nothing gets through for a minute, AndMTProto checks whether the CF proxy opens over TLS and without it. If the network blocks only TLS (as Russia blocked the CF domains on 16 Nov 2026), it turns on "No TLS for CF proxy/worker (port 80)" by itself and shows a card
+- **Network changes**: when the phone switches between Wi-Fi and mobile data, or after airplane mode, the proxy restarts on the new network by itself (after 15 s on a switch, and not at all if the phone is back on the earlier network by then). If nothing gets through for a minute while Telegram keeps trying, it restarts once more, and if that doesn't help a card says what to try
 - **Check for updates**: opens the latest release page, where you can compare its version with the one shown in the app and download the new APK if needed
 - **Check for updates daily** (on by default): once a day AndMTProto checks the GitHub releases and shows a notification when a new version is out. Tapping it opens the release page
 - **Quick Settings tile**: turns the proxy on and off from the notification shade
