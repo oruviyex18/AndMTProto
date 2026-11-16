@@ -400,3 +400,37 @@ def test_note_writes_dated_line_to_log(tmp_path):
                             r"mobile data; restarting the proxy core$", line) for line in lines)
     finally:
         android_entry.stop()
+
+
+class _FakeWs:
+    class writer:  # noqa: N801 - mimics RawWebSocket.writer
+        @staticmethod
+        def close():
+            pass
+
+
+def _fake_connect(tls_ok: bool, plain_ok: bool, seen: list):
+    async def connect(host, domain, timeout=10.0, path='/apiws', *, sni=None, secure=True):
+        seen.append((host, secure))
+        if (tls_ok if secure else plain_ok):
+            return _FakeWs()
+        raise TimeoutError()
+    return connect
+
+
+def test_probe_cf_tells_tls_block_from_dead_network(monkeypatch):
+    monkeypatch.setattr(android_entry.proxy_config, "fallback_cfproxy", True)
+    monkeypatch.setattr(android_entry.balancer, "domains", ["a.example", "b.example"])
+    for tls_ok, plain_ok in [(False, True), (True, True), (False, False)]:
+        seen = []
+        monkeypatch.setattr(android_entry.RawWebSocket, "connect",
+                            _fake_connect(tls_ok, plain_ok, seen))
+        assert json.loads(android_entry.probe_cf()) == {"tls": tls_ok, "plain": plain_ok}
+        # Both domains, each over TLS and plain, on the DC2 host the core uses.
+        assert sorted(seen) == sorted((f"kws2.{d}", s) for d in ("a.example", "b.example")
+                                      for s in (True, False))
+
+
+def test_probe_cf_skipped_without_cf_proxy(monkeypatch):
+    monkeypatch.setattr(android_entry.proxy_config, "fallback_cfproxy", False)
+    assert json.loads(android_entry.probe_cf()) == {}

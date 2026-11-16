@@ -133,8 +133,18 @@ class SettingsStore(context: Context) {
         get() = prefs.getBoolean(KEY_AUTO_PORT, false)
         set(value) = prefs.edit { putBoolean(KEY_AUTO_PORT, value) }
 
+    /**
+     * ProxyService turned [ProxySettings.noSecure] on by itself because the network
+     * blocks the CF proxy over TLS only; the main screen says so until dismissed.
+     * Cleared when the user changes that setting.
+     */
+    var noSecureAuto: Boolean
+        get() = prefs.getBoolean(KEY_NO_SECURE_AUTO, false)
+        set(value) = prefs.edit { putBoolean(KEY_NO_SECURE_AUTO, value) }
+
     private companion object {
         const val KEY = "config"
         const val KEY_AUTO_PORT = "auto_port"
+        const val KEY_NO_SECURE_AUTO = "no_secure_auto"
     }
 }

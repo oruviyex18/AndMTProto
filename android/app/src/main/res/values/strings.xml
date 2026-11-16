@@ -89,6 +89,8 @@
     <string name="card_stalled_title">Telegram can’t get through</string>
     <string name="card_stalled_body">Telegram keeps connecting, but nothing gets through the current network, even after an automatic restart of the proxy. Switch between Wi-Fi and mobile data, or turn airplane mode on and off. On mobile data your own CF Worker (Settings → Route) is more reliable than the shared CF domains.</string>
     <string name="restart_proxy">Restart proxy</string>
+    <string name="card_no_secure_auto_title">CF proxy runs without TLS</string>
+    <string name="card_no_secure_auto_body">This network blocks the CF proxy over TLS but lets it through without TLS, so AndMTProto turned on “No TLS for CF proxy/worker (port 80)” by itself. Your chats are still encrypted by Telegram itself. You can turn it off in Settings.</string>
     <string name="card_done">Done</string>
     <string name="card_update_body">You have %1$s. Open the release page to download the APK.</string>
     <string name="card_later">Later</string>
