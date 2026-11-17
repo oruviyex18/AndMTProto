@@ -70,7 +70,8 @@ private fun Context.carrierOf(caps: NetworkCapabilities): String = try {
         if (subId != null) telephony = telephony.createForSubscriptionId(subId)
     }
     val operator = telephony.networkOperatorName.orEmpty().ifEmpty { telephony.simOperatorName.orEmpty() }
-    val roaming = !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_ROAMING)
+    val roaming = Build.VERSION.SDK_INT >= 28 && // older versions lack the capability
+        !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_ROAMING)
     listOf(operator.trim(), if (roaming) "roaming" else "").filter { it.isNotEmpty() }.joinToString(", ")
 } catch (e: RuntimeException) {
     "" // e.g. no telephony on this device
