@@ -1,8 +1,12 @@
 package io.github.oruviyex18.andmtproto
 
+import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.TelephonyNetworkSpecifier
+import android.os.Build
+import android.telephony.TelephonyManager
 
 /**
  * Notices when Telegram keeps opening connections through the proxy but nothing
@@ -37,14 +41,38 @@ internal class StallDetector(
     }
 }
 
-/** "Wi-Fi", "mobile data", … for the log, from the network's transports. */
-internal fun ConnectivityManager.describe(network: Network?): String {
-    val caps = network?.let { getNetworkCapabilities(it) } ?: return "no network"
+/**
+ * "Wi-Fi", "mobile data (Beeline)", … for the log, from the network's transports.
+ * Blocking differs by provider, so mobile data names its carrier; that needs no
+ * permission. A Wi-Fi network's name would need the location permission, so it is left out.
+ */
+internal fun Context.describeNetwork(network: Network?): String {
+    val connectivity = getSystemService(ConnectivityManager::class.java)
+    val caps = network?.let { connectivity.getNetworkCapabilities(it) } ?: return "no network"
     val kinds = listOf(
         NetworkCapabilities.TRANSPORT_VPN to "VPN",
         NetworkCapabilities.TRANSPORT_WIFI to "Wi-Fi",
         NetworkCapabilities.TRANSPORT_CELLULAR to "mobile data",
         NetworkCapabilities.TRANSPORT_ETHERNET to "Ethernet",
     ).filter { (transport, _) -> caps.hasTransport(transport) }.map { it.second }
-    return kinds.joinToString(" over ").ifEmpty { "other network" }
+    val name = kinds.joinToString(" over ").ifEmpty { "other network" }
+    if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) return name
+    val carrier = carrierOf(caps)
+    return if (carrier.isEmpty()) name else "$name ($carrier)"
+}
+
+/** The carrier a mobile network runs on: "Beeline", plus "roaming" when it is. */
+private fun Context.carrierOf(caps: NetworkCapabilities): String = try {
+    var telephony = getSystemService(TelephonyManager::class.java)
+    if (Build.VERSION.SDK_INT >= 30) {
+        // Dual SIM: the SIM this network belongs to, not the default one.
+        val subId = (caps.networkSpecifier as? TelephonyNetworkSpecifier)?.subscriptionId
+        if (subId != null) telephony = telephony.createForSubscriptionId(subId)
+    }
+    val operator = telephony.networkOperatorName.orEmpty().ifEmpty { telephony.simOperatorName.orEmpty() }
+    val roaming = Build.VERSION.SDK_INT >= 28 && // older versions lack the capability
+        !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_ROAMING)
+    listOf(operator.trim(), if (roaming) "roaming" else "").filter { it.isNotEmpty() }.joinToString(", ")
+} catch (e: RuntimeException) {
+    "" // e.g. no telephony on this device
 }

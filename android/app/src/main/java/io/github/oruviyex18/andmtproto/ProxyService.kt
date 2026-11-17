@@ -110,7 +110,7 @@ class ProxyService : Service() {
         }
         coreNetwork = network ?: connectivity.activeNetwork
         lostSinceStart = false
-        ProxyCore.note("Network: ${connectivity.describe(coreNetwork)}")
+        ProxyCore.note("Network: ${describeNetwork(coreNetwork)}")
         delay(STARTUP_POLL_MS)
         var shown: ProxyStatus? = null
         var listened = false
@@ -164,7 +164,7 @@ class ProxyService : Service() {
             return true
         }
         if (!ProxyCore.stalled.value) {
-            ProxyCore.note("Still nothing gets through after the restart, over ${connectivity.describe(network)}")
+            ProxyCore.note("Still nothing gets through after the restart, over ${describeNetwork(network)}")
             ProxyCore.setStalled(true)
         }
         return false
@@ -187,7 +187,7 @@ class ProxyService : Service() {
         val probe = ProxyCore.probeCf() ?: return false
         fun word(ok: Boolean) = if (ok) "opens" else "blocked"
         ProxyCore.note(
-            "CF proxy check over ${connectivity.describe(current)}: " +
+            "CF proxy check over ${describeNetwork(current)}: " +
                 "TLS ${word(probe.tls)}, without TLS ${word(probe.plain)}"
         )
         val noSecure = when {
@@ -222,8 +222,8 @@ class ProxyService : Service() {
         if (previous == null && !networkLost) return // the first report after the service starts
         val back = networkLost
         ProxyCore.note(
-            if (back) "Network is back (${connectivity.describe(n)})"
-            else "Network changed to ${connectivity.describe(n)}"
+            if (back) "Network is back (${describeNetwork(n)})"
+            else "Network changed to ${describeNetwork(n)}"
         )
         networkLost = false
         // Networks flap while switching: Wi-Fi reconnected 3 times in 20 s once, and
@@ -235,10 +235,10 @@ class ProxyService : Service() {
             delay(if (back) NETWORK_BACK_SETTLE_MS else NETWORK_SWITCH_SETTLE_MS)
             val now = network
             if (now == coreNetwork && !lostSinceStart) {
-                ProxyCore.note("Back on ${connectivity.describe(now)}, where the proxy core runs; not restarting")
+                ProxyCore.note("Back on ${describeNetwork(now)}, where the proxy core runs; not restarting")
                 return@launch
             }
-            ProxyCore.note("Restarting the proxy core on ${connectivity.describe(now)}")
+            ProxyCore.note("Restarting the proxy core on ${describeNetwork(now)}")
             autoRestartAt = NEVER // a new network gets its own watchdog restart
             restartSession()
         }
