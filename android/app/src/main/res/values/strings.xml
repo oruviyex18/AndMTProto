@@ -12,7 +12,7 @@
     <string name="status_stopped">Proxy is stopped</string>
     <string name="stale_proxy_hint">The client is using multiple AndMTProto proxy entries in Telegram, or some entries are outdated. Please remove the redundant proxies in Telegram (Settings → Data and Storage → Proxy Settings) and disable “Auto-switch proxies”. Then restart Telegram: until then it keeps checking the deleted entries. This card goes away about 10 minutes after the last rejected connection.</string>
     <string name="core_version">Proxy core %1$s · app %2$s</string>
-    <string name="check_updates">Check for updates</string>
+    <string name="check_updates">Update the app</string>
     <string name="latest_release_url" translatable="false">https://github.com/oruviyex18/AndMTProto/releases/latest</string>
     <string name="copy_link">Copy link</string>
     <string name="link_copied">Link copied</string>
@@ -61,7 +61,7 @@
     <string name="check_updates_daily">Check for updates daily</string>
     <string name="channel_updates">Updates</string>
     <string name="update_available_title">AndMTProto %1$s is available</string>
-    <string name="update_available_text">You have %1$s. Tap to open the release page.</string>
+    <string name="update_available_text">You have %1$s. Tap to open AndMTProto and update.</string>
     <string name="start_on_boot">Start on boot</string>
     <string name="saved">Saved</string>
     <string name="invalid_number">%1$s must be a number</string>
@@ -91,9 +91,8 @@
     <string name="card_no_secure_auto_title">CF proxy runs without TLS</string>
     <string name="card_no_secure_auto_body">This network blocks the CF proxy over TLS, even with the bypass, but lets it through without TLS, so AndMTProto switched “CF connection” to “No TLS (port 80)” by itself. Once TLS with the bypass works again, it switches back by itself. Your chats are still encrypted by Telegram itself.</string>
     <string name="card_done">Done</string>
-    <string name="card_update_body">You have %1$s. Open the release page to download the APK.</string>
+    <string name="card_update_body">You have %1$s. AndMTProto downloads the update from GitHub and installs it; Android asks you to confirm.</string>
     <string name="card_later">Later</string>
-    <string name="card_open">Open</string>
     <string name="section_connection">Connection</string>
     <string name="section_route">Route</string>
     <string name="section_masking">Masking</string>
@@ -136,4 +135,27 @@
     <string name="tls_strategy_field">Strategy (ByeDPI-style)</string>
     <string name="tls_strategy_help">--tlsrec splits the TLS record, --split the TCP stream, --oob the same with an OOB byte. Position: a number, +s from the start of the site name, +sm from its middle, +se from its end. Also --sni-parent.</string>
     <string name="error_bad_tls_strategy">Bypass strategy: can\'t read “%1$s”.</string>
+    <string name="update_now">Update</string>
+    <string name="update_whats_new">What\'s new</string>
+    <string name="update_checking">Checking for updates…</string>
+    <string name="update_up_to_date">You have the latest version: %1$s</string>
+    <string name="update_permission_title">Allow installing the update</string>
+    <string name="update_permission_body">Android installs apps from files only with your permission. Open the settings, turn on “Allow from this source” for AndMTProto and come back here: the download starts by itself.</string>
+    <string name="update_permission_button">Open settings</string>
+    <string name="update_downloading_title">Downloading AndMTProto %1$s</string>
+    <string name="update_downloading_progress">%1$s of %2$s</string>
+    <string name="update_installing_title">Installing AndMTProto %1$s</string>
+    <string name="update_installing_body">Confirm the installation in Android\'s window. The proxy stops while it installs and then starts again by itself.</string>
+    <string name="update_failed_title">Couldn\'t update</string>
+    <string name="update_failed_network">No connection to GitHub, or the download broke off.</string>
+    <string name="update_failed_no_apk">The latest release has no APK file.</string>
+    <string name="update_failed_checksum">The downloaded file is damaged: its checksum doesn\'t match GitHub\'s.</string>
+    <string name="update_failed_not_ours">This file can\'t update the installed build. If you have a test build, install the release by hand.</string>
+    <string name="update_failed_install">Android didn\'t install the update.</string>
+    <string name="update_failed_cancelled">Installation cancelled.</string>
+    <string name="update_failed_detail">%1$s (%2$s)</string>
+    <string name="update_retry">Retry</string>
+    <string name="update_in_browser">In browser</string>
+    <string name="update_cancel">Cancel</string>
+    <string name="update_close">Close</string>
 </resources>

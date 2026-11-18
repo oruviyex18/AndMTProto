@@ -37,7 +37,6 @@ import androidx.lifecycle.repeatOnLifecycle
 import io.github.oruviyex18.andmtproto.BuildConfig
 import io.github.oruviyex18.andmtproto.ProxyError
 import io.github.oruviyex18.andmtproto.R
-import io.github.oruviyex18.andmtproto.UpdateCheck
 import kotlinx.coroutines.delay
 
 /**
@@ -112,22 +111,6 @@ internal fun NoSecureAutoCard(onDismiss: () -> Unit) {
         body = stringResource(R.string.card_no_secure_auto_body),
     ) {
         TextButton(onClick = onDismiss) { Text(stringResource(R.string.card_done)) }
-    }
-}
-
-/** A newer release found by the daily check; "Later" hides it until the next version. */
-@Composable
-internal fun UpdateCard(update: UpdateCheck.Available, onLater: () -> Unit) {
-    val context = LocalContext.current
-    val releasesUrl = stringResource(R.string.latest_release_url)
-    AttentionCard(
-        title = stringResource(R.string.update_available_title, update.version),
-        body = stringResource(R.string.card_update_body, BuildConfig.VERSION_NAME),
-    ) {
-        TextButton(onClick = onLater) { Text(stringResource(R.string.card_later)) }
-        TextButton(onClick = {
-            context.openUrl(update.url.ifBlank { releasesUrl })
-        }) { Text(stringResource(R.string.card_open)) }
     }
 }
 
