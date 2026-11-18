@@ -1,6 +1,5 @@
 package io.github.oruviyex18.andmtproto.ui
 
-import android.text.format.Formatter
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -11,15 +10,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import io.github.oruviyex18.andmtproto.AppUpdater
-import io.github.oruviyex18.andmtproto.AppUpdater.Problem
 import io.github.oruviyex18.andmtproto.AppUpdater.State
 import io.github.oruviyex18.andmtproto.BuildConfig
 import io.github.oruviyex18.andmtproto.R
 import io.github.oruviyex18.andmtproto.UpdateCheck
 
 /**
- * The update card: a newer release found by the daily check ([available]), or the
- * progress of "Update the app" ([state]), which takes over while it runs.
+ * The update card: a newer release found by the daily check or by "Update the
+ * app" ([available]), or that check while it runs ([state]). "Download" opens
+ * the APK in the browser; opening the downloaded file installs it with
+ * Android's own installer (see [AppUpdater] for why the app doesn't do it).
  */
 @Composable
 internal fun UpdateSection(
@@ -27,8 +27,6 @@ internal fun UpdateSection(
     available: UpdateCheck.Available?,
     onUpdate: () -> Unit,
     onLater: () -> Unit,
-    onCancel: () -> Unit,
-    onConfirm: () -> Unit,
     onClose: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -42,77 +40,25 @@ internal fun UpdateSection(
             ) {
                 TextButton(onClick = onLater) { Text(stringResource(R.string.card_later)) }
                 TextButton(onClick = { open(it.url) }) { Text(stringResource(R.string.update_whats_new)) }
-                TextButton(onClick = onUpdate) { Text(stringResource(R.string.update_now)) }
+                TextButton(onClick = { open(it.apkUrl.ifBlank { it.url }) }) {
+                    Text(stringResource(R.string.update_now))
+                }
             }
         }
         State.Checking -> AttentionCard(title = stringResource(R.string.update_checking), body = "") {
             LinearProgressIndicator(Modifier.fillMaxWidth())
         }
-        is State.NeedsPermission -> AttentionCard(
-            title = stringResource(R.string.update_permission_title),
-            body = stringResource(R.string.update_permission_body),
-        ) {
-            TextButton(onClick = onCancel) { Text(stringResource(R.string.update_cancel)) }
-            TextButton(onClick = { context.openInstallPermission() }) {
-                Text(stringResource(R.string.update_permission_button))
-            }
-        }
-        is State.Downloading -> AttentionCard(
-            title = stringResource(R.string.update_downloading_title, state.release.version),
-            body = if (state.total > 0) {
-                stringResource(
-                    R.string.update_downloading_progress,
-                    Formatter.formatShortFileSize(context, state.done),
-                    Formatter.formatShortFileSize(context, state.total),
-                )
-            } else {
-                Formatter.formatShortFileSize(context, state.done)
-            },
-            actionsBelow = true,
-        ) {
-            if (state.total > 0) {
-                LinearProgressIndicator(
-                    progress = { (state.done.toFloat() / state.total).coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            } else {
-                LinearProgressIndicator(Modifier.fillMaxWidth())
-            }
-            TextButton(onClick = onCancel) { Text(stringResource(R.string.update_cancel)) }
-        }
-        is State.Installing -> AttentionCard(
-            title = stringResource(R.string.update_installing_title, state.release.version),
-            body = stringResource(R.string.update_installing_body),
-        ) {
-            // Android may not show its window while AndMTProto was in the background.
-            TextButton(onClick = onCancel) { Text(stringResource(R.string.update_close)) }
-            if (state.confirm != null) {
-                TextButton(onClick = onConfirm) { Text(stringResource(R.string.update_open_installer)) }
-            }
-        }
         is State.Failed -> {
-            val reason = stringResource(
-                when (state.problem) {
-                    Problem.NETWORK -> R.string.update_failed_network
-                    Problem.NO_APK -> R.string.update_failed_no_apk
-                    Problem.CHECKSUM -> R.string.update_failed_checksum
-                    Problem.NOT_OURS -> R.string.update_failed_not_ours
-                    Problem.INSTALL -> R.string.update_failed_install
-                    Problem.CANCELLED -> R.string.update_failed_cancelled
-                }
-            )
-            val body = state.detail?.takeIf { it.isNotBlank() && state.problem != Problem.CANCELLED }
-                ?.let { stringResource(R.string.update_failed_detail, reason, it) } ?: reason
+            val reason = stringResource(R.string.update_failed_network)
             AttentionCard(
                 title = stringResource(R.string.update_failed_title),
-                body = body,
-                container = if (state.problem == Problem.CANCELLED) MaterialTheme.colorScheme.surfaceVariant
-                else MaterialTheme.colorScheme.errorContainer,
-                content = if (state.problem == Problem.CANCELLED) MaterialTheme.colorScheme.onSurfaceVariant
-                else MaterialTheme.colorScheme.onErrorContainer,
+                body = state.detail?.takeIf { it.isNotBlank() }
+                    ?.let { stringResource(R.string.update_failed_detail, reason, it) } ?: reason,
+                container = MaterialTheme.colorScheme.errorContainer,
+                content = MaterialTheme.colorScheme.onErrorContainer,
             ) {
                 TextButton(onClick = onClose) { Text(stringResource(R.string.update_close)) }
-                TextButton(onClick = { open(state.release?.pageUrl) }) { Text(stringResource(R.string.update_in_browser)) }
+                TextButton(onClick = { open(null) }) { Text(stringResource(R.string.update_in_browser)) }
                 TextButton(onClick = onUpdate) { Text(stringResource(R.string.update_retry)) }
             }
         }
