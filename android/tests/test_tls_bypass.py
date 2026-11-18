@@ -204,10 +204,23 @@ def test_start_rejects_a_bad_strategy_only_when_on():
 
 
 class _FakeWs:
+    """An open RawWebSocket; Telegram answers the probe unless `silent`."""
+    def __init__(self, silent: bool = False):
+        self.silent = silent
+        self.sent = []
+
     class writer:  # noqa: N801 - mimics RawWebSocket.writer
         @staticmethod
         def close():
             pass
+
+    async def send(self, data: bytes):
+        self.sent.append(data)
+
+    async def recv(self):
+        if self.silent:
+            await asyncio.sleep(3600)
+        return b"resPQ"
 
 
 def _connect_opening(works):
