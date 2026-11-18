@@ -127,10 +127,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun startUpdate() = AppUpdater.start(getApplication())
 
-    /** Back from the "Install unknown apps" screen: continue if it was allowed. */
-    fun resumeUpdate() = AppUpdater.resume(getApplication())
+    /**
+     * The main screen is shown again: pick up a release the daily check found meanwhile
+     * (its notification opens this screen), and continue an update if "Install unknown
+     * apps" was just allowed.
+     */
+    fun onScreenResumed() {
+        if (updater.value is AppUpdater.State.Idle) _update.value = UpdateCheck.available(getApplication())
+        AppUpdater.resume(getApplication())
+    }
 
-    fun cancelUpdate() = AppUpdater.cancel()
+    fun cancelUpdate() = AppUpdater.cancel(getApplication())
+
+    fun confirmUpdate() = AppUpdater.confirm(getApplication())
 
     fun closeUpdate() {
         AppUpdater.acknowledge()

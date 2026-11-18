@@ -12,9 +12,11 @@ import android.util.Log
 import androidx.core.content.edit
 import androidx.core.content.pm.PackageInfoCompat
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,7 +40,8 @@ object AppUpdater {
     private const val TAG = "AppUpdater"
     private const val DIR = "updates"
     private const val PREFS = "app_updater"
-    private const val KEY_RESTART_PROXY = "restart_proxy"
+    /** The versionCode being installed while the proxy ran; that version restarts it. */
+    private const val KEY_RESTART_FOR = "restart_proxy_for"
     private const val ACTION_STATUS = "io.github.oruviyex18.andmtproto.action.INSTALL_STATUS"
 
     enum class Problem {
@@ -64,54 +67,79 @@ object AppUpdater {
         /** Android 8+ needs "Install unknown apps" for AndMTProto first. */
         data class NeedsPermission(val release: UpdateCheck.Release) : State
         data class Downloading(val release: UpdateCheck.Release, val done: Long, val total: Long) : State
-        /** Handed to the system installer, which asks the user to confirm. */
-        data class Installing(val release: UpdateCheck.Release) : State
+        /**
+         * Handed to the system installer, which asks the user to confirm. [confirm] is
+         * its confirmation screen, kept so the user can open it again: Android may not
+         * show it while AndMTProto is in the background.
+         */
+        data class Installing(val release: UpdateCheck.Release, val confirm: Intent? = null) : State
         data class Failed(val problem: Problem, val release: UpdateCheck.Release?, val detail: String? = null) : State
     }
 
+    private class BadChecksum : IOException("checksum mismatch")
+    private class NotOurs(reason: String) : Exception(reason)
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val lock = Any()
+    /** The current run; only its state changes are shown (see [publish]). */
     private var job: Job? = null
+    /** The latest run, which may still be finishing a blocking read after [cancel]. */
+    private var last: Job? = null
     private val _state = MutableStateFlow<State>(State.Idle)
     val state: StateFlow<State> = _state.asStateFlow()
 
     /** Checks for a newer release and, if there is one, downloads and installs it. */
     fun start(context: Context) {
-        if (job?.isActive == true) return
         val app = context.applicationContext
-        job = scope.launch {
-            _state.value = State.Checking
-            val release = try {
-                UpdateCheck.fetchLatest()
-            } catch (e: IOException) {
-                Log.w(TAG, "Update check failed", e)
-                _state.value = State.Failed(Problem.NETWORK, null, e.message)
-                return@launch
+        synchronized(lock) {
+            if (job?.isActive == true) return
+            launchRun {
+                publish(State.Checking)
+                val release = try {
+                    UpdateCheck.fetchLatest()
+                } catch (e: IOException) {
+                    Log.w(TAG, "Update check failed", e)
+                    publish(State.Failed(Problem.NETWORK, null, e.message))
+                    return@launchRun
+                }
+                if (release == null || !UpdateCheck.isNewer(release.version, BuildConfig.VERSION_NAME)) {
+                    publish(State.UpToDate(BuildConfig.VERSION_NAME))
+                    return@launchRun
+                }
+                UpdateCheck.remember(app, release)
+                continueWith(app, release)
             }
-            if (release == null || !UpdateCheck.isNewer(release.version, BuildConfig.VERSION_NAME)) {
-                _state.value = State.UpToDate(BuildConfig.VERSION_NAME)
-                return@launch
-            }
-            UpdateCheck.remember(app, release)
-            continueWith(app, release)
         }
     }
 
     /** After the user came back from the "Install unknown apps" screen. */
     fun resume(context: Context) {
-        val waiting = _state.value as? State.NeedsPermission ?: return
-        if (!canInstall(context)) return
         val app = context.applicationContext
-        job = scope.launch { continueWith(app, waiting.release) }
+        synchronized(lock) {
+            val waiting = _state.value as? State.NeedsPermission ?: return
+            if (job?.isActive == true || !canInstall(app)) return
+            launchRun { continueWith(app, waiting.release) }
+        }
     }
 
-    fun cancel() {
-        job?.cancel()
-        job = null
-        _state.value = State.Idle
+    /** Stops the download, or forgets an install the user didn't confirm. */
+    fun cancel(context: Context) {
+        val was = synchronized(lock) {
+            job?.cancel()
+            job = null
+            _state.value.also { _state.value = State.Idle }
+        }
+        if (was is State.Installing) clearRestart(context)
+    }
+
+    /** Opens the installer's confirmation screen again (see [State.Installing.confirm]). */
+    fun confirm(context: Context) {
+        val confirm = (_state.value as? State.Installing)?.confirm ?: return
+        showConfirm(context, confirm)
     }
 
     /** Back to [State.Idle] after the UI showed a one-off state such as [State.UpToDate]. */
-    fun acknowledge() {
+    fun acknowledge() = synchronized(lock) {
         val s = _state.value
         if (s is State.UpToDate || s is State.Failed) _state.value = State.Idle
     }
@@ -119,45 +147,64 @@ object AppUpdater {
     fun canInstall(context: Context): Boolean =
         Build.VERSION.SDK_INT < 26 || context.packageManager.canRequestPackageInstalls()
 
+    /** Starts [block] as the current run, after the previous one has really ended. Call under [lock]. */
+    private fun launchRun(block: suspend () -> Unit) {
+        val previous = last
+        val next = scope.launch(start = CoroutineStart.LAZY) {
+            previous?.cancelAndJoin() // a cancelled download may still be writing its file
+            block()
+        }
+        job = next
+        last = next
+        next.start()
+    }
+
+    /** Shows [s] unless this run was cancelled or replaced meanwhile. */
+    private suspend fun publish(s: State) {
+        val me = currentCoroutineContext()[Job]
+        synchronized(lock) { if (me === job) _state.value = s }
+    }
+
     private suspend fun continueWith(app: Context, release: UpdateCheck.Release) {
         if (release.apkUrl.isBlank()) {
-            _state.value = State.Failed(Problem.NO_APK, release)
+            publish(State.Failed(Problem.NO_APK, release))
             return
         }
         if (!canInstall(app)) {
-            _state.value = State.NeedsPermission(release)
+            publish(State.NeedsPermission(release))
             return
         }
         val apk = try {
             download(app, release)
         } catch (e: CancellationException) {
             throw e
+        } catch (e: BadChecksum) {
+            publish(State.Failed(Problem.CHECKSUM, release))
+            return
         } catch (e: IOException) {
             Log.w(TAG, "Update download failed", e)
-            _state.value = State.Failed(Problem.NETWORK, release, e.message)
+            publish(State.Failed(Problem.NETWORK, release, e.message))
             return
         }
-        if (release.sha256 != null && sha256(apk) != release.sha256) {
+        val versionCode = try {
+            checkApk(app, apk)
+        } catch (e: NotOurs) {
             apk.delete()
-            _state.value = State.Failed(Problem.CHECKSUM, release)
+            publish(State.Failed(Problem.NOT_OURS, release, e.message))
             return
         }
-        val mismatch = checkApk(app, apk)
-        if (mismatch != null) {
-            apk.delete()
-            _state.value = State.Failed(Problem.NOT_OURS, release, mismatch)
-            return
-        }
-        _state.value = State.Installing(release)
+        currentCoroutineContext().ensureActive()
+        publish(State.Installing(release))
         try {
-            install(app, apk)
+            install(app, apk, versionCode)
         } catch (e: Exception) {
             Log.w(TAG, "Could not start the installer", e)
-            prefs(app).edit { remove(KEY_RESTART_PROXY) }
-            _state.value = State.Failed(Problem.INSTALL, release, e.message)
+            clearRestart(app)
+            publish(State.Failed(Problem.INSTALL, release, e.message))
         }
     }
 
+    /** The release APK, downloaded or kept from before, matching GitHub's checksum. */
     private suspend fun download(app: Context, release: UpdateCheck.Release): File {
         val dir = File(app.cacheDir, DIR).apply { mkdirs() }
         val name = "AndMTProto-${release.version}.apk"
@@ -181,8 +228,9 @@ object AppUpdater {
             conn.setRequestProperty("User-Agent", "AndMTProto/${BuildConfig.VERSION_NAME}")
             val code = conn.responseCode
             if (code in 300..399 && hops++ < 5) {
-                val next = conn.getHeaderField("Location") ?: throw IOException("HTTP $code without Location")
+                val next = conn.getHeaderField("Location")
                 conn.disconnect()
+                if (next == null) throw IOException("HTTP $code without Location")
                 url = URL(url, next)
                 if (url.protocol != "https") throw IOException("Redirect to ${url.protocol}")
                 continue
@@ -197,7 +245,7 @@ object AppUpdater {
             val total = conn.contentLengthLong.takeIf { it > 0 } ?: release.apkSize
             var got = 0L
             var shown = -1L
-            _state.value = State.Downloading(release, 0, total)
+            publish(State.Downloading(release, 0, total))
             conn.inputStream.use { input ->
                 part.outputStream().use { output ->
                     val buf = ByteArray(64 * 1024)
@@ -210,7 +258,7 @@ object AppUpdater {
                         val step = if (total > 0) got * 100 / total else got / (1 shl 20)
                         if (step != shown) {
                             shown = step
-                            _state.value = State.Downloading(release, got, total)
+                            publish(State.Downloading(release, got, total))
                         }
                     }
                 }
@@ -219,25 +267,32 @@ object AppUpdater {
         } finally {
             conn.disconnect()
         }
+        currentCoroutineContext().ensureActive()
+        if (release.sha256 != null && sha256(part) != release.sha256) {
+            part.delete()
+            throw BadChecksum()
+        }
         if (!part.renameTo(done)) throw IOException("Cannot keep the download")
         return done
     }
 
-    /** Why [apk] can't update this app, or null if it can. */
-    private fun checkApk(context: Context, apk: File): String? {
+    /** The versionCode of [apk] if it can update this app; throws [NotOurs] with the reason if not. */
+    private fun checkApk(context: Context, apk: File): Long {
         val pm = context.packageManager
         @Suppress("DEPRECATION")
         val flags = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES
         else PackageManager.GET_SIGNATURES
-        val archive = pm.getPackageArchiveInfo(apk.path, flags) ?: return "not an APK"
-        if (archive.packageName != context.packageName) return "package ${archive.packageName}"
+        val archive = pm.getPackageArchiveInfo(apk.path, flags) ?: throw NotOurs("not an APK")
+        if (archive.packageName != context.packageName) throw NotOurs("package ${archive.packageName}")
         val installed = pm.getPackageInfo(context.packageName, flags)
-        if (PackageInfoCompat.getLongVersionCode(archive) <= PackageInfoCompat.getLongVersionCode(installed)) {
-            return "version ${archive.versionName} is not newer"
+        val versionCode = PackageInfoCompat.getLongVersionCode(archive)
+        if (versionCode <= PackageInfoCompat.getLongVersionCode(installed)) {
+            throw NotOurs("version ${archive.versionName} is not newer")
         }
         val theirs = signers(archive)
-        if (theirs.isNotEmpty() && theirs != signers(installed)) return "signed with another key"
-        return null
+        if (theirs.isEmpty()) throw NotOurs("signature unreadable")
+        if (theirs != signers(installed)) throw NotOurs("signed with another key")
+        return versionCode
     }
 
     @Suppress("DEPRECATION")
@@ -250,7 +305,7 @@ object AppUpdater {
         return sigs.orEmpty().map { sha256(it.toByteArray()) }.toSet()
     }
 
-    private fun install(context: Context, apk: File) {
+    private fun install(context: Context, apk: File, versionCode: Long) {
         val installer = context.packageManager.packageInstaller
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
             setAppPackageName(context.packageName)
@@ -265,8 +320,12 @@ object AppUpdater {
                 apk.inputStream().use { it.copyTo(out) }
                 session.fsync(out)
             }
-            // The proxy stops while Android replaces the app; start it again afterwards.
-            prefs(context).edit { putBoolean(KEY_RESTART_PROXY, ProxyCore.state.value.running) }
+            // The proxy stops while Android replaces the app; start it again afterwards,
+            // but only once this very version is installed.
+            prefs(context).edit {
+                if (ProxyCore.state.value.running) putLong(KEY_RESTART_FOR, versionCode)
+                else remove(KEY_RESTART_FOR)
+            }
             val status = PendingIntent.getBroadcast(
                 context, id,
                 Intent(context, InstallStatusReceiver::class.java).setAction(ACTION_STATUS),
@@ -277,31 +336,43 @@ object AppUpdater {
         }
     }
 
+    private fun showConfirm(context: Context, confirm: Intent) {
+        try {
+            context.startActivity(confirm)
+        } catch (e: Exception) {
+            Log.w(TAG, "Cannot show the installer", e)
+            clearRestart(context)
+            val release = (_state.value as? State.Installing)?.release
+            synchronized(lock) { _state.value = State.Failed(Problem.INSTALL, release, e.message) }
+        }
+    }
+
     internal fun onInstallStatus(context: Context, intent: Intent) {
         val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)
         val release = (_state.value as? State.Installing)?.release
+        fun fail(problem: Problem, detail: String? = null) {
+            clearRestart(context)
+            synchronized(lock) { _state.value = State.Failed(problem, release, detail) }
+        }
         when (status) {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 @Suppress("DEPRECATION")
-                val confirm = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT) ?: return
-                try {
-                    context.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                } catch (e: Exception) {
-                    Log.w(TAG, "Cannot show the installer", e)
-                    prefs(context).edit { remove(KEY_RESTART_PROXY) }
-                    _state.value = State.Failed(Problem.INSTALL, release, e.message)
+                val confirm = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
+                    ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (confirm == null) {
+                    fail(Problem.INSTALL, "no confirmation screen")
+                    return
                 }
+                // Kept for the card's button: from the background Android may not show it.
+                if (release != null) synchronized(lock) { _state.value = State.Installing(release, confirm) }
+                showConfirm(context, confirm)
             }
-            PackageInstaller.STATUS_SUCCESS -> _state.value = State.Idle // normally the app is replaced first
-            PackageInstaller.STATUS_FAILURE_ABORTED -> {
-                prefs(context).edit { remove(KEY_RESTART_PROXY) }
-                _state.value = State.Failed(Problem.CANCELLED, release)
-            }
+            PackageInstaller.STATUS_SUCCESS -> synchronized(lock) { _state.value = State.Idle } // normally the app is replaced first
+            PackageInstaller.STATUS_FAILURE_ABORTED -> fail(Problem.CANCELLED)
             else -> {
-                prefs(context).edit { remove(KEY_RESTART_PROXY) }
                 val message = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
                 Log.w(TAG, "Install failed: $status $message")
-                _state.value = State.Failed(Problem.INSTALL, release, message ?: "status $status")
+                fail(Problem.INSTALL, message ?: "status $status")
             }
         }
     }
@@ -310,8 +381,9 @@ object AppUpdater {
     internal fun onUpdated(context: Context) {
         File(context.cacheDir, DIR).deleteRecursively()
         val prefs = prefs(context)
-        val restart = prefs.getBoolean(KEY_RESTART_PROXY, false)
-        prefs.edit { remove(KEY_RESTART_PROXY) }
+        val restartFor = prefs.getLong(KEY_RESTART_FOR, -1)
+        val restart = restartFor == BuildConfig.VERSION_CODE.toLong()
+        clearRestart(context)
         if (restart) {
             try {
                 ProxyService.start(context)
@@ -320,6 +392,9 @@ object AppUpdater {
             }
         }
     }
+
+    private fun clearRestart(context: Context) =
+        prefs(context).edit { remove(KEY_RESTART_FOR) }
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 

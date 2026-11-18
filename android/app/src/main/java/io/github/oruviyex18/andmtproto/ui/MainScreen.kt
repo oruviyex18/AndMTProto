@@ -129,6 +129,7 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
                 onUpdate = vm::startUpdate,
                 onLater = vm::dismissUpdate,
                 onCancel = vm::cancelUpdate,
+                onConfirm = vm::confirmUpdate,
                 onClose = vm::closeUpdate,
             )
             VersionFooter(status.coreVersion, updating = updater !is AppUpdater.State.Idle &&
@@ -144,10 +145,10 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
             vm.closeUpdate()
         }
     }
-    // Back from the "Install unknown apps" screen: carry on if it was allowed.
+    // Back from the notification or the "Install unknown apps" screen.
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(lifecycle) {
-        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) { vm.resumeUpdate() }
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) { vm.onScreenResumed() }
     }
 }
 
