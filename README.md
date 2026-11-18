@@ -2,6 +2,8 @@
 
 **🇷🇺 Русский • [🇬🇧 English](./README.en.md)**
 
+[![Скачиваний](https://img.shields.io/github/downloads/oruviyex18/AndMTProto/total?label=%D0%A1%D0%BA%D0%B0%D1%87%D0%B8%D0%B2%D0%B0%D0%BD%D0%B8%D0%B9)](https://github.com/oruviyex18/AndMTProto/releases)
+
 </div>
 
 <div align="center">
