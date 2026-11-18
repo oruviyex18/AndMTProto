@@ -123,7 +123,7 @@
     <string name="tls_strategy_auto">Automatic (recommended)</string>
     <string name="tls_strategy_auto_body">AndMTProto checks the strategies in this list at every start, on a network change and when Telegram stops getting data, and uses the first that works. The log shows which one it picked.</string>
     <string name="tls_strategy_default">Split the TLS record</string>
-    <string name="tls_strategy_default_body">Two TLS records, split inside the site name, sent as two TCP packets. Tested on Wi-Fi and mobile data.</string>
+    <string name="tls_strategy_default_body">Two TLS records, split inside the site name, sent as two TCP packets. Works on many networks, but on Beeline mobile data (18 Nov 2026) the connection opened and then carried no data; “Automatic” then picks another strategy.</string>
     <string name="tls_strategy_records_oob">Split the TLS record + OOB byte</string>
     <string name="tls_strategy_records_oob_body">The same plus one out-of-band (OOB) byte. May fail through some VPNs and routers.</string>
     <string name="tls_strategy_oob">OOB byte only</string>

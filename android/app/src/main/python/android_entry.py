@@ -38,6 +38,7 @@ from proxy import __version__
 from proxy.balancer import balancer
 from proxy.config import (CFPROXY_DEFAULT_DOMAINS, coerce_domain_list,
                           parse_dc_ip_list, proxy_config)
+from proxy._aes import Cipher, algorithms, modes
 from proxy.raw_websocket import RawWebSocket
 from proxy.stats import stats
 from proxy import tg_ws_proxy
@@ -623,32 +624,60 @@ def status() -> str:
 
 
 _PROBE_DOMAINS = 3
-_PROBE_TIMEOUT_S = 6.0
+_PROBE_TIMEOUT_S = 10.0  # a reply via the CF proxy took 3-6 s through a VPN
 
 
-async def _ws_opens(domain: str, secure: bool, timeout: float,
+_PROBE_DC = 2  # the probe hosts are kws2.<domain>
+_REQ_PQ_MULTI = 0xBE7E8EF1
+
+
+def _probe_request(dc: int = _PROBE_DC) -> Tuple[bytes, bytes]:
+    """What Telegram sends first through the CF proxy: the obfuscated start
+    for `dc`, then an unencrypted req_pq_multi (abridged framing), which the
+    DC answers with resPQ. Returns (start, request) as two WebSocket messages."""
+    start = tg_ws_proxy._generate_relay_init(proxy_utils.PROTO_TAG_ABRIDGED, dc)
+    key_end = proxy_utils.SKIP_LEN + proxy_utils.PREKEY_LEN
+    encryptor = Cipher(algorithms.AES(start[proxy_utils.SKIP_LEN:key_end]),
+                       modes.CTR(start[key_end:key_end + proxy_utils.IV_LEN])).encryptor()
+    encryptor.update(start)  # the stream goes on after the 64-byte start
+    message_id = int(time.time() * (1 << 32)) & ~3
+    body = (bytes(8) + struct.pack("<qI", message_id, 20)
+            + struct.pack("<I", _REQ_PQ_MULTI) + os.urandom(16))
+    return start, encryptor.update(bytes([len(body) // 4]) + body)
+
+
+async def _ws_works(domain: str, secure: bool, timeout: float,
                     bypass: Any = False) -> bool:
-    """True if a WebSocket to `domain` opens the way the core opens it, with
-    the TLS bypass `bypass` (a Strategy, or False for plain TLS)."""
+    """True if Telegram answers through a WebSocket to `domain`, opened the
+    way the core opens it with the TLS bypass `bypass` (a Strategy, or False
+    for plain TLS). An open WebSocket isn't enough: on 18 Nov 2026 Beeline LTE
+    let the TLS split through but then no data came back."""
     tls_bypass.override.set(bypass)  # this task's own context
+
+    async def exchange() -> bool:
+        ws = await RawWebSocket.connect(domain, domain, timeout=timeout, secure=secure)
+        try:
+            start, request = _probe_request()
+            await ws.send(start)
+            await ws.send(request)
+            return bool(await ws.recv())
+        finally:
+            ws.writer.close()
+
     try:
-        ws = await asyncio.wait_for(
-            RawWebSocket.connect(domain, domain, timeout=timeout, secure=secure),
-            timeout=timeout)
+        return await asyncio.wait_for(exchange(), timeout=timeout)
     except Exception:
         return False
-    ws.writer.close()
-    return True
 
 
 async def _pick_strategy(domains: List[str], timeout: float) -> Any:
     """Tries every candidate strategy, then plain TLS, on `domains` at once.
-    Returns the first in tls_bypass.CANDIDATES order that opened, False if
-    only plain TLS did, or None if nothing did."""
+    Returns the first in tls_bypass.CANDIDATES order Telegram answered
+    through, False if only plain TLS did, or None if nothing did."""
     hosts = [f"kws2.{d}" for d in domains]
     options: List[Any] = [tls_bypass.parse(t) for t in tls_bypass.CANDIDATES] + [False]
     results = await asyncio.gather(
-        *(_ws_opens(h, True, timeout, option) for option in options for h in hosts))
+        *(_ws_works(h, True, timeout, option) for option in options for h in hosts))
     n = len(hosts)
     for i, option in enumerate(options):
         if any(results[i * n:(i + 1) * n]):
@@ -691,7 +720,7 @@ async def _probe_cf(domains: List[str], timeout: float,
     hosts = [f"kws2.{d}" for d in domains]
     ways = [(True, False), (False, False)] + ([] if strategy is None else [(True, strategy)])
     results, choice = await asyncio.gather(
-        asyncio.gather(*(_ws_opens(h, secure, timeout, bypass)
+        asyncio.gather(*(_ws_works(h, secure, timeout, bypass)
                          for secure, bypass in ways for h in hosts)),
         _pick_strategy(domains, timeout) if strategy is None else asyncio.sleep(0))
     n = len(hosts)
@@ -704,8 +733,8 @@ async def _probe_cf(domains: List[str], timeout: float,
 
 
 def probe_cf(timeout: float = _PROBE_TIMEOUT_S) -> str:
-    """Whether the CF proxy opens over plain TLS, over TLS with the bypass
-    strategy, and without TLS (port 80).
+    """Whether Telegram answers through the CF proxy over plain TLS, over TLS
+    with the bypass strategy, and without TLS (port 80).
 
     Russian DPI cut TLS to the shared CF domains by their name (SNI) on
     16 Nov 2026 while plain HTTP to them kept working; ProxyService uses this
