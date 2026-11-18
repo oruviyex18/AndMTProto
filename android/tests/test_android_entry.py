@@ -409,10 +409,11 @@ class _FakeWs:
             pass
 
 
-def _fake_connect(tls_ok: bool, plain_ok: bool, seen: list):
+def _fake_connect(tls_ok: bool, bypass_ok: bool, plain_ok: bool, seen: list):
     async def connect(host, domain, timeout=10.0, path='/apiws', *, sni=None, secure=True):
-        seen.append((host, secure))
-        if (tls_ok if secure else plain_ok):
+        way = ("bypass" if android_entry.tls_bypass.override.get() else "tls") if secure else "plain"
+        seen.append((host, way))
+        if {"tls": tls_ok, "bypass": bypass_ok, "plain": plain_ok}[way]:
             return _FakeWs()
         raise TimeoutError()
     return connect
@@ -420,15 +421,19 @@ def _fake_connect(tls_ok: bool, plain_ok: bool, seen: list):
 
 def test_probe_cf_tells_tls_block_from_dead_network(monkeypatch):
     monkeypatch.setattr(android_entry.proxy_config, "fallback_cfproxy", True)
+    monkeypatch.setattr(android_entry, "_probe_strategy",
+                        android_entry.tls_bypass.parse(android_entry.tls_bypass.DEFAULT_STRATEGY))
     monkeypatch.setattr(android_entry.balancer, "domains", ["a.example", "b.example"])
-    for tls_ok, plain_ok in [(False, True), (True, True), (False, False)]:
+    for tls_ok, bypass_ok, plain_ok in [(False, True, True), (False, False, True),
+                                        (True, True, True), (False, False, False)]:
         seen = []
         monkeypatch.setattr(android_entry.RawWebSocket, "connect",
-                            _fake_connect(tls_ok, plain_ok, seen))
-        assert json.loads(android_entry.probe_cf()) == {"tls": tls_ok, "plain": plain_ok}
-        # Both domains, each over TLS and plain, on the DC2 host the core uses.
-        assert sorted(seen) == sorted((f"kws2.{d}", s) for d in ("a.example", "b.example")
-                                      for s in (True, False))
+                            _fake_connect(tls_ok, bypass_ok, plain_ok, seen))
+        assert json.loads(android_entry.probe_cf()) == {
+            "tls": tls_ok, "bypass": bypass_ok, "plain": plain_ok}
+        # Both domains, each over plain TLS, bypassed TLS and port 80, on the DC2 host.
+        assert sorted(seen) == sorted((f"kws2.{d}", way) for d in ("a.example", "b.example")
+                                      for way in ("tls", "bypass", "plain"))
 
 
 def test_probe_cf_skipped_without_cf_proxy(monkeypatch):

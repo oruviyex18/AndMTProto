@@ -54,7 +54,6 @@
     <string name="cf_proxy_guide_url">https://github.com/Flowseal/tg-ws-proxy/blob/main/docs/RU/CfProxy.md</string>
     <string name="fake_tls">Домен Fake TLS (необязательно)</string>
     <string name="force_test_dc">Принудительно тестовые DC</string>
-    <string name="no_secure">Без TLS для CF proxy/worker (порт 80)</string>
     <string name="verbose">Подробный лог</string>
     <string name="check_updates_daily">Ежедневно проверять обновления</string>
     <string name="channel_updates">Обновления</string>
@@ -87,7 +86,7 @@
     <string name="card_stalled_body">Telegram подключается, но через текущую сеть ничего не проходит — даже после автоматического перезапуска прокси. Переключитесь между Wi-Fi и мобильным интернетом или включите и выключите режим полёта. На мобильном интернете свой CF Worker (Настройки → Маршрут) работает надёжнее общих CF-доменов.</string>
     <string name="restart_proxy">Перезапустить прокси</string>
     <string name="card_no_secure_auto_title">CF-прокси работает без TLS</string>
-    <string name="card_no_secure_auto_body">Сеть блокирует CF-прокси по TLS, но пропускает его без TLS, поэтому AndMTProto сам включил «Без TLS для CF proxy/worker (порт 80)». Переписка по-прежнему зашифрована самим Telegram. Выключить можно в Настройках.</string>
+    <string name="card_no_secure_auto_body">Сеть блокирует CF-прокси по TLS, даже с обходом блокировки, но пропускает его без TLS, поэтому AndMTProto сам переключил «Подключение к CF» на «Без TLS (порт 80)». Когда TLS с обходом снова заработает, он вернётся к нему сам. Переписка по-прежнему зашифрована самим Telegram.</string>
     <string name="card_done">Готово</string>
     <string name="card_update_body">У вас %1$s. Откройте страницу релиза, чтобы скачать APK.</string>
     <string name="card_later">Позже</string>
@@ -111,4 +110,27 @@
     <string name="log_copied">Лог скопирован</string>
     <string name="copy">Копировать</string>
     <string name="share_full_log">Отправить весь лог</string>
+    <string name="cf_transport">Подключение к CF</string>
+    <string name="cf_transport_bypass">TLS с обходом блокировки</string>
+    <string name="cf_transport_bypass_body">Первый пакет TLS разбит так, что провайдер не может прочитать в нём адрес. Рекомендуется.</string>
+    <string name="cf_transport_tls">Обычный TLS</string>
+    <string name="cf_transport_tls_body">Как в оригинальном tg-ws-proxy. Не работает там, где провайдер блокирует CF-прокси.</string>
+    <string name="cf_transport_plain">Без TLS (порт 80)</string>
+    <string name="cf_transport_plain_body">Переписку по-прежнему шифрует сам Telegram, но провайдер видит адрес CF-прокси и может заблокировать и этот путь.</string>
+    <string name="tls_strategy">Стратегия обхода</string>
+    <string name="tls_strategy_auto">Автоматически (рекомендуется)</string>
+    <string name="tls_strategy_auto_body">AndMTProto сам проверяет стратегии из этого списка при каждом запуске, при смене сети и если Telegram перестал получать данные, и использует первую рабочую. Какую он выбрал, видно в логе.</string>
+    <string name="tls_strategy_default">Разделить запись TLS</string>
+    <string name="tls_strategy_default_body">Две записи TLS, разделённые внутри имени сайта, уходят двумя TCP-пакетами. Проверено на Wi-Fi и мобильном интернете.</string>
+    <string name="tls_strategy_records_oob">Разделить запись TLS + OOB-байт</string>
+    <string name="tls_strategy_records_oob_body">То же и ещё один внеполосный (OOB) байт. Через некоторые VPN и роутеры может не работать.</string>
+    <string name="tls_strategy_oob">Только OOB-байт</string>
+    <string name="tls_strategy_oob_body">Внеполосный (OOB) байт внутри имени сайта, без разделения записи. Работает не во всех сетях.</string>
+    <string name="tls_strategy_parent">Корневой домен в SNI</string>
+    <string name="tls_strategy_parent_body">В TLS указано имя без «kws2.». Провайдеры его пока не блокируют, но могут начать.</string>
+    <string name="tls_strategy_custom">Своя стратегия</string>
+    <string name="tls_strategy_custom_body">Как в ByeDPI: опции и позиции ниже.</string>
+    <string name="tls_strategy_field">Стратегия (как в ByeDPI)</string>
+    <string name="tls_strategy_help">--tlsrec — разделить запись TLS, --split — разделить TCP, --oob — то же с OOB-байтом. Позиция: число, +s — от начала имени сайта, +sm — от середины, +se — от конца. Ещё --sni-parent.</string>
+    <string name="error_bad_tls_strategy">Стратегия обхода: не понимаю «%1$s».</string>
 </resources>

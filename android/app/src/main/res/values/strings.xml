@@ -57,7 +57,6 @@
     <string name="cf_proxy_guide_url">https://github.com/Flowseal/tg-ws-proxy/blob/main/docs/EN/CfProxy.md</string>
     <string name="fake_tls">Fake TLS domain (optional)</string>
     <string name="force_test_dc">Force test DCs</string>
-    <string name="no_secure">No TLS for CF proxy/worker (port 80)</string>
     <string name="verbose">Verbose logging</string>
     <string name="check_updates_daily">Check for updates daily</string>
     <string name="channel_updates">Updates</string>
@@ -90,7 +89,7 @@
     <string name="card_stalled_body">Telegram keeps connecting, but nothing gets through the current network, even after an automatic restart of the proxy. Switch between Wi-Fi and mobile data, or turn airplane mode on and off. On mobile data your own CF Worker (Settings → Route) is more reliable than the shared CF domains.</string>
     <string name="restart_proxy">Restart proxy</string>
     <string name="card_no_secure_auto_title">CF proxy runs without TLS</string>
-    <string name="card_no_secure_auto_body">This network blocks the CF proxy over TLS but lets it through without TLS, so AndMTProto turned on “No TLS for CF proxy/worker (port 80)” by itself. Your chats are still encrypted by Telegram itself. You can turn it off in Settings.</string>
+    <string name="card_no_secure_auto_body">This network blocks the CF proxy over TLS, even with the bypass, but lets it through without TLS, so AndMTProto switched “CF connection” to “No TLS (port 80)” by itself. Once TLS with the bypass works again, it switches back by itself. Your chats are still encrypted by Telegram itself.</string>
     <string name="card_done">Done</string>
     <string name="card_update_body">You have %1$s. Open the release page to download the APK.</string>
     <string name="card_later">Later</string>
@@ -114,4 +113,27 @@
     <string name="log_copied">Log copied</string>
     <string name="copy">Copy</string>
     <string name="share_full_log">Send full log</string>
+    <string name="cf_transport">CF connection</string>
+    <string name="cf_transport_bypass">TLS with blocking bypass</string>
+    <string name="cf_transport_bypass_body">The first TLS packet is split so the ISP can\'t read the address in it. Recommended.</string>
+    <string name="cf_transport_tls">Plain TLS</string>
+    <string name="cf_transport_tls_body">As upstream tg-ws-proxy does. Fails where the ISP blocks the CF proxy.</string>
+    <string name="cf_transport_plain">No TLS (port 80)</string>
+    <string name="cf_transport_plain_body">Telegram still encrypts your chats, but the ISP sees the CF proxy address and can block this route too.</string>
+    <string name="tls_strategy">Bypass strategy</string>
+    <string name="tls_strategy_auto">Automatic (recommended)</string>
+    <string name="tls_strategy_auto_body">AndMTProto checks the strategies in this list at every start, on a network change and when Telegram stops getting data, and uses the first that works. The log shows which one it picked.</string>
+    <string name="tls_strategy_default">Split the TLS record</string>
+    <string name="tls_strategy_default_body">Two TLS records, split inside the site name, sent as two TCP packets. Tested on Wi-Fi and mobile data.</string>
+    <string name="tls_strategy_records_oob">Split the TLS record + OOB byte</string>
+    <string name="tls_strategy_records_oob_body">The same plus one out-of-band (OOB) byte. May fail through some VPNs and routers.</string>
+    <string name="tls_strategy_oob">OOB byte only</string>
+    <string name="tls_strategy_oob_body">An out-of-band (OOB) byte inside the site name, no record split. Doesn\'t work on every network.</string>
+    <string name="tls_strategy_parent">Bare domain in SNI</string>
+    <string name="tls_strategy_parent_body">TLS names the domain without “kws2.”. ISPs don\'t block it yet, but may start.</string>
+    <string name="tls_strategy_custom">Custom strategy</string>
+    <string name="tls_strategy_custom_body">ByeDPI-style options and positions, below.</string>
+    <string name="tls_strategy_field">Strategy (ByeDPI-style)</string>
+    <string name="tls_strategy_help">--tlsrec splits the TLS record, --split the TCP stream, --oob the same with an OOB byte. Position: a number, +s from the start of the site name, +sm from its middle, +se from its end. Also --sni-parent.</string>
+    <string name="error_bad_tls_strategy">Bypass strategy: can\'t read “%1$s”.</string>
 </resources>

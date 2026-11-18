@@ -33,6 +33,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import io.github.oruviyex18.andmtproto.ProxySettings
 import io.github.oruviyex18.andmtproto.R
+import io.github.oruviyex18.andmtproto.TlsStrategies
 import io.github.oruviyex18.andmtproto.isLoopbackHost
 
 /**
@@ -67,6 +68,7 @@ data class SettingsDraft(
                 poolSize = poolSize,
                 bufKb = bufKb,
                 fakeTlsDomain = settings.fakeTlsDomain.trim(),
+                tlsStrategy = settings.tlsStrategy.trim().ifEmpty { TlsStrategies.DEFAULT },
             )
         )
     }
@@ -115,6 +117,7 @@ fun SettingsForm(draft: SettingsDraft, onChange: (SettingsDraft) -> Unit, onShow
         if (s.cfWorkerEnabled) {
             Field(s.cfWorkerDomains, R.string.cf_worker_domains, Modifier.fillMaxWidth()) { v -> edit { copy(cfWorkerDomains = v) } }
         }
+        if (s.cfproxy || s.cfUserDomainEnabled || s.cfWorkerEnabled) CfTransportSettings(s, ::edit)
         if (s.cfproxy && !s.cfUserDomainEnabled && !s.cfWorkerEnabled) CfHint()
     }
     Section(R.string.section_masking) {
@@ -139,7 +142,6 @@ fun SettingsForm(draft: SettingsDraft, onChange: (SettingsDraft) -> Unit, onShow
                     onChange(draft.copy(bufKb = it))
                 }
             }
-            Toggle(s.noSecure, R.string.no_secure) { v -> edit { copy(noSecure = v) } }
             Toggle(s.forceTestDc, R.string.force_test_dc) { v -> edit { copy(forceTestDc = v) } }
             Toggle(s.verbose, R.string.verbose) { v -> edit { copy(verbose = v) } }
         }

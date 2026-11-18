@@ -107,6 +107,9 @@ When reviewing a sync PR:
    to `test_core_tls_offers_only_x25519`. On the device, `_check_core_tls()` logs an error at
    start if the core's TLS offers more than X25519; if upstream drops the limit, restore an
    adapter patch (see android.6, PR #8) that covers every client in that test.
+   The TLS-blocking bypass (`tls_bypass.py`) hooks `asyncio.sslproto.SSLProtocol`, so it covers
+   only TLS opened with `asyncio.open_connection(ssl=...)`; a CF or Telegram client that
+   opens TLS another way needs its own hook. `test_tls_bypass.py` checks the hook on a real socket.
 4. **New import or version pin in `pyproject.toml` that `proxy/` uses:** add it to
    `app/requirements.txt` (Chaquopy and CI both install from it). A native package needs an
    Android wheel from Chaquopy's index.
