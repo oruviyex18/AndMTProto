@@ -56,6 +56,8 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
         when (val result = vm.save()) {
             is MainViewModel.SaveResult.Invalid ->
                 context.toast(resources.getString(R.string.invalid_number, resources.getString(result.field)))
+            is MainViewModel.SaveResult.BadStrategy ->
+                context.toast(resources.getString(R.string.error_bad_tls_strategy, result.part))
             is MainViewModel.SaveResult.Saved -> {
                 context.toast(if (result.restarted) R.string.saved_restarted else R.string.saved)
                 onBack()

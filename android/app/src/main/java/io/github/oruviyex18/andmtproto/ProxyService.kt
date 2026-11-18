@@ -44,6 +44,9 @@ class ProxyService : Service() {
     /** The network the CF transport was last checked on (see [switchCfTransport]). */
     private var probedOn: Network? = null
 
+    /** The network [backToTls] last checked. */
+    private var upgradeProbedOn: Network? = null
+
     /** When the watchdog last restarted the core (elapsedRealtime); at most once per cooldown. */
     private var autoRestartAt = NEVER
 
@@ -114,6 +117,7 @@ class ProxyService : Service() {
         delay(STARTUP_POLL_MS)
         var shown: ProxyStatus? = null
         var listened = false
+        var checkTls = false
         val stalls = StallDetector()
         while (true) {
             val status = ProxyCore.poll()
@@ -133,11 +137,16 @@ class ProxyService : Service() {
             if (status.listening && !listened) {
                 listened = true
                 SettingsStore(this).autoPort = false // the port works; never change it again
+                checkTls = true
             }
             if (status.listening && watchStall(stalls, status)) return
             if (status.active != shown?.active || status.listening != shown.listening) {
                 notify(buildNotification(status))
                 shown = status
+            }
+            if (checkTls) {
+                checkTls = false
+                if (backToTls()) return // after the notification: the check takes seconds
             }
             delay(POLL_MS)
         }
@@ -172,38 +181,69 @@ class ProxyService : Service() {
 
     /**
      * On 16 Nov 2026 Russian DPI began cutting TLS to the shared CF proxy domains by
-     * name, while the same domains kept working over plain HTTP (port 80). Then
-     * nothing gets through although the network is fine. Checks that once per
-     * network and, if so, turns on "No TLS for CF" by itself and restarts; it turns
-     * it back off only if it turned it on and port 80 is the one blocked now.
-     * Returns true when this session was replaced.
+     * name. The TLS bypass (the default) gets past that, and plain HTTP (port 80) did
+     * too. When nothing gets through although the network is fine, checks all three
+     * once per network and moves to the first one that works: the bypass, else no
+     * TLS. A connection mode the user picked themselves is left alone, except
+     * "no TLS" set by this check. Returns true when this session was replaced.
      */
     private suspend fun switchCfTransport(): Boolean {
         val store = SettingsStore(this)
         val current = network ?: connectivity.activeNetwork
         if (!settings.cfproxy || current == null || current == probedOn) return false
-        if (settings.noSecure && !store.noSecureAuto) return false // the user's own choice
+        val mode = settings.cfTransport
+        if (mode == CfTransport.TLS || (mode == CfTransport.PLAIN && !store.noSecureAuto)) {
+            return false // the user's own choice
+        }
         probedOn = current
         val probe = ProxyCore.probeCf() ?: return false
+        noteProbe(current, probe)
+        if (probe.works(mode)) return false
+        val target = listOf(CfTransport.BYPASS, CfTransport.PLAIN).firstOrNull { probe.works(it) } ?: return false
+        ProxyCore.note(
+            if (target == CfTransport.PLAIN) {
+                "Turning on \"No TLS for CF\": this network blocks the CF proxy over TLS, even with the bypass"
+            } else {
+                "Turning \"No TLS for CF\" back off: TLS with the bypass works on this network"
+            }
+        )
+        switchTo(store, target)
+        return true
+    }
+
+    /**
+     * Once the core listens with "no TLS" that [switchCfTransport] turned on, checks
+     * once per network whether TLS with the bypass works, and goes back to it: port
+     * 80 can be blocked any time, and TLS hides more from the network. Returns true
+     * when this session was replaced.
+     */
+    private suspend fun backToTls(): Boolean {
+        val store = SettingsStore(this)
+        val current = network ?: connectivity.activeNetwork
+        if (!settings.cfproxy || current == null || current == upgradeProbedOn) return false
+        if (settings.cfTransport != CfTransport.PLAIN || !store.noSecureAuto || !settings.tlsBypass) return false
+        upgradeProbedOn = current
+        val probe = ProxyCore.probeCf() ?: return false
+        noteProbe(current, probe)
+        if (!probe.bypass) return false
+        ProxyCore.note("Turning \"No TLS for CF\" back off: TLS with the bypass works on this network")
+        switchTo(store, CfTransport.BYPASS)
+        return true
+    }
+
+    private fun noteProbe(on: Network, probe: ProxyCore.CfProbe) {
         fun word(ok: Boolean) = if (ok) "opens" else "blocked"
         ProxyCore.note(
-            "CF proxy check over ${describeNetwork(current)}: " +
-                "TLS ${word(probe.tls)}, without TLS ${word(probe.plain)}"
+            "CF proxy check over ${describeNetwork(on)}: TLS ${word(probe.tls)}, " +
+                "TLS with the bypass ${word(probe.bypass)}, without TLS ${word(probe.plain)}"
         )
-        val noSecure = when {
-            !settings.noSecure && !probe.tls && probe.plain -> true
-            settings.noSecure && !probe.plain && probe.tls -> false
-            else -> return false
-        }
-        ProxyCore.note(
-            if (noSecure) "Turning on \"No TLS for CF\": this network blocks the CF proxy over TLS only"
-            else "Turning \"No TLS for CF\" back off: TLS works on this network and port 80 doesn't"
-        )
-        settings = settings.copy(noSecure = noSecure)
+    }
+
+    private fun switchTo(store: SettingsStore, target: CfTransport) {
+        settings = settings.withCfTransport(target)
         store.save(settings)
-        store.noSecureAuto = noSecure
+        store.noSecureAuto = target == CfTransport.PLAIN
         restartSession()
-        return true
     }
 
     /** Replaces the running session with a fresh core; safe to call from that session. */

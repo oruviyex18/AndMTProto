@@ -79,6 +79,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         data class Saved(val restarted: Boolean) : SaveResult
         /** [field] is the label of the first field that isn't a whole number. */
         data class Invalid(@StringRes val field: Int) : SaveResult
+        /** [part] of the TLS bypass strategy isn't valid. */
+        data class BadStrategy(val part: String) : SaveResult
     }
 
     /** Saves the draft if it changed and restarts a running proxy with it. */
@@ -88,8 +90,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             is SettingsDraft.Parsed.Valid -> parsed.settings
         }
         if (settings == _saved.value) return SaveResult.Unchanged
+        if (settings.tlsBypass && settings.tlsStrategy != _saved.value.tlsStrategy) {
+            ProxyCore.badTlsStrategyPart(settings.tlsStrategy)?.let { return SaveResult.BadStrategy(it) }
+        }
         if (settings.port != _saved.value.port) store.autoPort = false // the user's choice
-        if (settings.noSecure != _saved.value.noSecure) store.noSecureAuto = false // ditto
+        if (settings.cfTransport != _saved.value.cfTransport) store.noSecureAuto = false // ditto
         persist(settings)
         _draft.value = SettingsDraft(settings)
         val restart = status.value.running

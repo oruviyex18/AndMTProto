@@ -7,11 +7,11 @@ Review this file whenever upstream changes ProxyConfig, _run() or the
 tray lifecycle code.
 
 Kotlin (ProxyCore.kt) calls only start(), stop(), status(), note(),
-probe_cf() and proxy_link();
+probe_cf(), check_tls_strategy() and proxy_link();
 config and status travel as JSON strings. Errors reach Kotlin as
 {"code", "detail", "suggested_port"} so the UI can show them in its own
 language. Codes: bad_secret, bad_port, bad_dc_ip, bad_fake_tls,
-port_in_use, permission, address, unknown.
+bad_tls_strategy, port_in_use, permission, address, unknown.
 """
 from __future__ import annotations
 
@@ -45,6 +45,8 @@ from proxy import utils as proxy_utils
 from proxy.tg_ws_proxy import _run
 from proxy.utils import DomainCensorFilter, get_link_host
 
+import tls_bypass
+
 log = logging.getLogger('tg-mtproto-proxy')
 
 # Same keys and defaults as utils/default_config.py, plus fake_tls_domain.
@@ -65,6 +67,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "force_test_dc": False,
     "no_secure": False,
     "fake_tls_domain": "",
+    # AndMTProto only: see tls_bypass.py.
+    "tls_bypass": True,
+    "tls_strategy": tls_bypass.DEFAULT_STRATEGY,
 }
 
 # How far above a busy port to look for a free one.
@@ -192,6 +197,7 @@ def _fake_tls_domain(cfg: Dict[str, Any]) -> str:
 def _apply_config(cfg: Dict[str, Any]) -> None:
     """Port of tray_common.apply_proxy_config; raises ConfigError on bad input."""
     secret, port, fake_tls = _secret(cfg), _port(cfg), _fake_tls_domain(cfg)
+    strategy = _tls_strategy(cfg)
     try:
         dc_redirects = parse_dc_ip_list(cfg["dc_ip"])
     except ValueError as exc:
@@ -215,6 +221,44 @@ def _apply_config(cfg: Dict[str, Any]) -> None:
     pc.force_test_dc = bool(cfg["force_test_dc"])
     pc.disable_secure = bool(cfg["no_secure"])
     pc.fake_tls_domain = fake_tls
+    tls_bypass.configure(strategy if cfg["tls_bypass"] else None, _bypass_domains)
+    global _probe_strategy
+    _probe_strategy = strategy
+
+
+# The strategy probe_cf tries, set by start() even while the bypass is off.
+_probe_strategy = tls_bypass.parse(tls_bypass.DEFAULT_STRATEGY)
+
+
+def _tls_strategy(cfg: Dict[str, Any]) -> "tls_bypass.Strategy":
+    text = str(cfg["tls_strategy"]).strip() or tls_bypass.DEFAULT_STRATEGY
+    try:
+        return tls_bypass.parse(text)
+    except tls_bypass.StrategyError as exc:
+        if cfg["tls_bypass"]:
+            raise ConfigError("bad_tls_strategy", exc.token) from None
+        return tls_bypass.parse(tls_bypass.DEFAULT_STRATEGY)
+
+
+def _bypass_domains() -> List[str]:
+    """Hosts under these get the TLS bypass: the CF proxy, CF workers and
+    Telegram's own WebSocket hosts, whose TLS the same DPI cuts by name."""
+    pc = proxy_config
+    return (list(CFPROXY_DEFAULT_DOMAINS) + list(balancer.domains or [])
+            + list(pc.cfproxy_user_domains) + list(pc.cfproxy_worker_domains)
+            + ["web.telegram.org"])
+
+
+def check_tls_strategy(text: str) -> str:
+    """'' if `text` is a valid bypass strategy (empty means the default),
+    else the token that is not."""
+    if not text.strip():
+        return ""
+    try:
+        tls_bypass.parse(text)
+    except tls_bypass.StrategyError as exc:
+        return exc.token or text.strip()
+    return ""
 
 
 def _setup_logging(log_dir: str, cfg: Dict[str, Any]) -> None:
@@ -434,6 +478,7 @@ def start(cfg_json: str, log_dir: str) -> Optional[str]:
     the proxy thread and show up in status().
     """
     global _proxy_thread, _stop_requested, _last_error
+    _wait_for_stopping_thread()
     with _lock:
         if _is_running():
             return None
@@ -449,6 +494,12 @@ def start(cfg_json: str, log_dir: str) -> Optional[str]:
         log.info("AndMTProto: core %s, Python %s",
                  __version__, sys.version.split()[0])
         _check_core_tls()
+        if proxy_config.disable_secure:
+            log.info("AndMTProto: CF proxy without TLS (port 80)")
+        elif cfg["tls_bypass"]:
+            log.info("AndMTProto: TLS-blocking bypass on: %s", _probe_strategy.text)
+        else:
+            log.info("AndMTProto: plain TLS, no blocking bypass")
         _reset_stats(time.monotonic())
         log.info("Starting proxy on %s:%d ...",
                  proxy_config.host, proxy_config.port)
@@ -462,6 +513,22 @@ def start(cfg_json: str, log_dir: str) -> Optional[str]:
             daemon=True, name="proxy")
         _proxy_thread.start()
         return None
+
+
+# How long start() waits for a core that stop() left still shutting down.
+_STOPPING_WAIT_S = 10.0
+
+
+def _wait_for_stopping_thread() -> None:
+    """A restart's stop() can return while the old core still closes connections;
+    starting then would be skipped as "already running" and leave nothing running
+    once that thread ends. Wait for it a little longer instead."""
+    thread, stopping = _proxy_thread, _stop_requested
+    if thread is None or stopping is None or not stopping.is_set() or not thread.is_alive():
+        return
+    thread.join(_STOPPING_WAIT_S)
+    if thread.is_alive():
+        log.warning("The previous proxy core is still stopping; not starting a new one")
 
 
 def stop(timeout: float = 5.0) -> None:
@@ -539,8 +606,11 @@ _PROBE_DOMAINS = 3
 _PROBE_TIMEOUT_S = 6.0
 
 
-async def _ws_opens(domain: str, secure: bool, timeout: float) -> bool:
-    """True if a WebSocket to `domain` opens the way the core opens it."""
+async def _ws_opens(domain: str, secure: bool, timeout: float,
+                    bypass: Any = False) -> bool:
+    """True if a WebSocket to `domain` opens the way the core opens it, with
+    the TLS bypass `bypass` (a Strategy, or False for plain TLS)."""
+    tls_bypass.override.set(bypass)  # this task's own context
     try:
         ws = await asyncio.wait_for(
             RawWebSocket.connect(domain, domain, timeout=timeout, secure=secure),
@@ -551,28 +621,33 @@ async def _ws_opens(domain: str, secure: bool, timeout: float) -> bool:
     return True
 
 
-async def _probe_cf(domains: List[str], timeout: float) -> Dict[str, bool]:
+async def _probe_cf(domains: List[str], timeout: float,
+                    strategy: Any) -> Dict[str, bool]:
     hosts = [f"kws2.{d}" for d in domains]
+    ways = [(True, False), (True, strategy), (False, False)]
     results = await asyncio.gather(
-        *(_ws_opens(h, secure, timeout) for secure in (True, False) for h in hosts))
-    return {"tls": any(results[:len(hosts)]), "plain": any(results[len(hosts):])}
+        *(_ws_opens(h, secure, timeout, bypass) for secure, bypass in ways for h in hosts))
+    n = len(hosts)
+    return {"tls": any(results[:n]), "bypass": any(results[n:2 * n]),
+            "plain": any(results[2 * n:])}
 
 
 def probe_cf(timeout: float = _PROBE_TIMEOUT_S) -> str:
-    """Whether the CF proxy opens over TLS (port 443) and without it (port 80).
+    """Whether the CF proxy opens over plain TLS, over TLS with the bypass
+    strategy, and without TLS (port 80).
 
     Russian DPI cut TLS to the shared CF domains by their name (SNI) on
     16 Nov 2026 while plain HTTP to them kept working; ProxyService uses this
     to tell that apart from a dead network. Tries a few domains at once in its
     own event loop, so it can run next to the proxy thread. Returns JSON
-    {"tls": bool, "plain": bool}, or {} when the CF proxy is off.
+    {"tls": bool, "bypass": bool, "plain": bool}, or {} when the CF proxy is off.
     """
     if not proxy_config.fallback_cfproxy:
         return json.dumps({})
     pool = list(balancer.domains or proxy_config.cfproxy_user_domains
                 or CFPROXY_DEFAULT_DOMAINS)
     domains = random.sample(pool, min(_PROBE_DOMAINS, len(pool)))
-    return json.dumps(asyncio.run(_probe_cf(domains, timeout)))
+    return json.dumps(asyncio.run(_probe_cf(domains, timeout, _probe_strategy)))
 
 
 def note(message: str) -> None:

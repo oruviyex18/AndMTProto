@@ -39,12 +39,30 @@ data class ProxySettings(
     val fakeTlsDomain: String = "",
     val forceTestDc: Boolean = false,
     val noSecure: Boolean = false,
+    /** Android-only: TLS-blocking bypass for the CF proxy (tls_bypass.py); on by default. */
+    val tlsBypass: Boolean = true,
+    /** Android-only: the bypass strategy, ByeDPI-style ([TlsStrategies]). */
+    val tlsStrategy: String = TlsStrategies.DEFAULT,
     val verbose: Boolean = false,
     /** Android-only; ignored by the Python core. On for new installs. */
     val startOnBoot: Boolean = true,
     /** Android-only: the daily [UpdateCheck]. */
     val checkUpdates: Boolean = true,
 ) {
+    /** How the core connects to the CF proxy, from [noSecure] and [tlsBypass]. */
+    val cfTransport: CfTransport
+        get() = when {
+            noSecure -> CfTransport.PLAIN
+            tlsBypass -> CfTransport.BYPASS
+            else -> CfTransport.TLS
+        }
+
+    fun withCfTransport(t: CfTransport): ProxySettings = when (t) {
+        CfTransport.BYPASS -> copy(noSecure = false, tlsBypass = true)
+        CfTransport.TLS -> copy(noSecure = false, tlsBypass = false)
+        CfTransport.PLAIN -> copy(noSecure = true) // the bypass choice is kept for later
+    }
+
     fun toJson(): JSONObject = JSONObject()
         .put("host", host)
         .put("port", port)
@@ -61,6 +79,8 @@ data class ProxySettings(
         .put("fake_tls_domain", fakeTlsDomain)
         .put("force_test_dc", forceTestDc)
         .put("no_secure", noSecure)
+        .put("tls_bypass", tlsBypass)
+        .put("tls_strategy", tlsStrategy)
         .put("verbose", verbose)
         .put("start_on_boot", startOnBoot)
         .put("check_updates", checkUpdates)
@@ -85,6 +105,8 @@ data class ProxySettings(
                 fakeTlsDomain = o.optString("fake_tls_domain", d.fakeTlsDomain),
                 forceTestDc = o.optBoolean("force_test_dc", d.forceTestDc),
                 noSecure = o.optBoolean("no_secure", d.noSecure),
+                tlsBypass = o.optBoolean("tls_bypass", d.tlsBypass),
+                tlsStrategy = o.optString("tls_strategy", d.tlsStrategy),
                 verbose = o.optBoolean("verbose", d.verbose),
                 startOnBoot = o.optBoolean("start_on_boot", d.startOnBoot),
                 checkUpdates = o.optBoolean("check_updates", d.checkUpdates),
@@ -96,6 +118,28 @@ data class ProxySettings(
             return bytes.joinToString("") { "%02x".format(it) }
         }
     }
+}
+
+/** How the core connects to the CF proxy and CF workers. */
+enum class CfTransport {
+    /** TLS with the ClientHello reshaped so DPI can't read the name in it (the default). */
+    BYPASS,
+    /** Plain TLS, as upstream does. */
+    TLS,
+    /** No TLS, port 80 ("No TLS for CF proxy/worker" upstream). */
+    PLAIN,
+}
+
+/** Ready-made bypass strategies; the syntax is described in tls_bypass.py. */
+object TlsStrategies {
+    /** Two TLS records split inside the name, sent as two TCP segments. Tested on 18 Nov 2026. */
+    const val DEFAULT = "--tlsrec 0+sm --split 2+sm"
+    const val RECORDS_OOB = "--tlsrec 0+sm --oob 2+sm"
+    const val OOB = "--oob 0+sm"
+    const val PARENT_SNI = "--sni-parent"
+
+    /** Presets in the order the settings list them. */
+    val PRESETS = listOf(DEFAULT, RECORDS_OOB, OOB, PARENT_SNI)
 }
 
 class SettingsStore(context: Context) {
@@ -135,8 +179,8 @@ class SettingsStore(context: Context) {
 
     /**
      * ProxyService turned [ProxySettings.noSecure] on by itself because the network
-     * blocks the CF proxy over TLS only; the main screen says so until dismissed.
-     * Cleared when the user changes that setting.
+     * blocks the CF proxy over TLS, even with the bypass; the main screen says so
+     * until dismissed. Cleared when the user picks the CF connection themselves.
      */
     var noSecureAuto: Boolean
         get() = prefs.getBoolean(KEY_NO_SECURE_AUTO, false)

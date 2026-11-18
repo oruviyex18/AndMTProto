@@ -107,14 +107,23 @@ object ProxyCore {
         readStatus()
     }
 
-    /** Whether the CF proxy opens over TLS and without it; null if CF is off or the probe failed. */
-    data class CfProbe(val tls: Boolean, val plain: Boolean)
+    /**
+     * Whether the CF proxy opens over plain TLS, over TLS with the bypass strategy,
+     * and without TLS; null if CF is off or the probe failed.
+     */
+    data class CfProbe(val tls: Boolean, val bypass: Boolean, val plain: Boolean) {
+        fun works(t: CfTransport) = when (t) {
+            CfTransport.BYPASS -> bypass
+            CfTransport.TLS -> tls
+            CfTransport.PLAIN -> plain
+        }
+    }
 
     /** Runs android_entry.probe_cf (several seconds) off the lifecycle thread, so polls go on. */
     suspend fun probeCf(): CfProbe? = withContext(Dispatchers.IO) {
         try {
             val o = JSONObject(module.callAttr("probe_cf").toString())
-            if (o.has("tls")) CfProbe(o.getBoolean("tls"), o.getBoolean("plain")) else null
+            if (o.has("tls")) CfProbe(o.getBoolean("tls"), o.getBoolean("bypass"), o.getBoolean("plain")) else null
         } catch (e: Exception) {
             Log.w(TAG, "CF probe failed", e)
             null
@@ -132,6 +141,14 @@ object ProxyCore {
     /** [stop] that outlives the caller, e.g. a service being destroyed. */
     fun stopInBackground() {
         scope.launch { stop() }
+    }
+
+    /** The part of a TLS bypass strategy that isn't valid, or null if it all is. */
+    fun badTlsStrategyPart(text: String): String? = try {
+        module.callAttr("check_tls_strategy", text).toString().ifEmpty { null }
+    } catch (e: Exception) {
+        Log.w(TAG, "Cannot check the TLS strategy", e)
+        null // start() checks it again and reports it
     }
 
     /** The tg://proxy link for [settings], or null if Python couldn't build it. */
