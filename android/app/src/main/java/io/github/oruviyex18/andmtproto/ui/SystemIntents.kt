@@ -43,7 +43,6 @@ internal fun Context.copyToClipboard(text: String, @StringRes copied: Int = R.st
     toast(copied)
 }
 
-/** Opens [url] in a browser, or copies it when there is none. */
 /** Android 8+: the "Install unknown apps" switch for this app, needed by AppUpdater. */
 internal fun Context.openInstallPermission() {
     val opened = Build.VERSION.SDK_INT >= 26 && startActivitySafely(
@@ -52,6 +51,7 @@ internal fun Context.openInstallPermission() {
     if (!opened) startActivitySafely(Intent(Settings.ACTION_SECURITY_SETTINGS))
 }
 
+/** Opens [url] in a browser, or copies it when there is none. */
 internal fun Context.openUrl(url: String) {
     if (!startActivitySafely(Intent(Intent.ACTION_VIEW, url.toUri()))) copyToClipboard(url)
 }

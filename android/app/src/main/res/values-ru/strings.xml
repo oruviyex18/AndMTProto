@@ -155,4 +155,5 @@
     <string name="update_in_browser">В браузере</string>
     <string name="update_cancel">Отмена</string>
     <string name="update_close">Закрыть</string>
+    <string name="update_open_installer">Открыть установщик</string>
 </resources>

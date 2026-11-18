@@ -28,6 +28,7 @@ internal fun UpdateSection(
     onUpdate: () -> Unit,
     onLater: () -> Unit,
     onCancel: () -> Unit,
+    onConfirm: () -> Unit,
     onClose: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -58,11 +59,15 @@ internal fun UpdateSection(
         }
         is State.Downloading -> AttentionCard(
             title = stringResource(R.string.update_downloading_title, state.release.version),
-            body = stringResource(
-                R.string.update_downloading_progress,
-                Formatter.formatShortFileSize(context, state.done),
-                Formatter.formatShortFileSize(context, state.total),
-            ),
+            body = if (state.total > 0) {
+                stringResource(
+                    R.string.update_downloading_progress,
+                    Formatter.formatShortFileSize(context, state.done),
+                    Formatter.formatShortFileSize(context, state.total),
+                )
+            } else {
+                Formatter.formatShortFileSize(context, state.done)
+            },
             actionsBelow = true,
         ) {
             if (state.total > 0) {
@@ -78,7 +83,13 @@ internal fun UpdateSection(
         is State.Installing -> AttentionCard(
             title = stringResource(R.string.update_installing_title, state.release.version),
             body = stringResource(R.string.update_installing_body),
-        )
+        ) {
+            // Android may not show its window while AndMTProto was in the background.
+            TextButton(onClick = onCancel) { Text(stringResource(R.string.update_close)) }
+            if (state.confirm != null) {
+                TextButton(onClick = onConfirm) { Text(stringResource(R.string.update_open_installer)) }
+            }
+        }
         is State.Failed -> {
             val reason = stringResource(
                 when (state.problem) {

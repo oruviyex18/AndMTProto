@@ -158,4 +158,5 @@
     <string name="update_in_browser">In browser</string>
     <string name="update_cancel">Cancel</string>
     <string name="update_close">Close</string>
+    <string name="update_open_installer">Open installer</string>
 </resources>
