@@ -3,6 +3,7 @@ import asyncio
 import asyncio.sslproto
 import json
 import os
+import re
 import ssl
 import struct
 import sys
@@ -24,6 +25,7 @@ HOST = "kws2.example.co.uk"
 def _bypass_off_after():
     yield
     tls_bypass.configure(None, lambda: ())
+    android_entry._auto_pick_on = False
 
 
 def _hello(host=HOST) -> bytes:
@@ -110,15 +112,14 @@ def test_presets_parse(text):
 
 
 def test_kotlin_presets_match():
-    """ProxySettings.kt lists the same default and presets that parse here."""
+    """ProxySettings.kt lists automatic first, then the candidates in the same order."""
     kt = open(os.path.join(ROOT, "android", "app", "src", "main", "java", "io", "github",
                            "oruviyex18", "andmtproto", "ProxySettings.kt"), encoding="utf-8").read()
-    import re
-    presets = dict(re.findall(r'const val (\w+) = "([^"]+)"', kt))
-    assert presets["DEFAULT"] == tls_bypass.DEFAULT_STRATEGY
-    for text in presets.values():
-        if text.startswith("-"):
-            parse(text)
+    consts = dict(re.findall(r'const val (\w+) = "([^"]+)"', kt))
+    names = re.search(r"val PRESETS = listOf\(([^)]*)\)", kt).group(1).replace(" ", "").split(",")
+    assert consts["AUTO"] == tls_bypass.AUTO
+    assert "const val DEFAULT = AUTO" in kt
+    assert [consts[n] for n in names] == [tls_bypass.AUTO, *tls_bypass.CANDIDATES]
 
 
 def test_plan_picks_hosts_and_parent_sni():
@@ -197,9 +198,86 @@ def test_start_rejects_a_bad_strategy_only_when_on():
     with pytest.raises(android_entry.ConfigError) as err:
         android_entry._apply_config(android_entry._merged(json.dumps(cfg)))
     assert err.value.code == "bad_tls_strategy" and err.value.detail == "--nope"
-    cfg["tls_bypass"] = False
+    cfg["tls_bypass"] = False  # then it is ignored, and probe_cf checks them all
     android_entry._apply_config(android_entry._merged(json.dumps(cfg)))
-    assert android_entry._probe_strategy.text == tls_bypass.DEFAULT_STRATEGY
+    assert android_entry._probe_strategy is None
+
+
+class _FakeWs:
+    class writer:  # noqa: N801 - mimics RawWebSocket.writer
+        @staticmethod
+        def close():
+            pass
+
+
+def _connect_opening(works):
+    """RawWebSocket.connect that opens when works(way) is true for its way:
+    "plain" (port 80), "tls" (no strategy) or a strategy's text."""
+    async def connect(host, domain, timeout=10.0, path='/apiws', *, sni=None, secure=True):
+        bypass = tls_bypass.override.get()
+        way = "plain" if not secure else (bypass.text if bypass else "tls")
+        if works(way):
+            return _FakeWs()
+        raise TimeoutError()
+    return connect
+
+
+def _start_auto(monkeypatch, **cfg):
+    base = {"port": 1, "secret": "0123456789abcdef0123456789abcdef", "cfproxy": True,
+            "pool_size": 0}
+    base.update(cfg)
+    android_entry._apply_config(android_entry._merged(json.dumps(base)))
+    monkeypatch.setattr(android_entry.balancer, "domains", ["a.example", "b.example"])
+
+
+def test_automatic_is_the_default_and_starts_with_the_usual_strategy(monkeypatch):
+    _start_auto(monkeypatch)
+    assert android_entry.DEFAULT_CONFIG["tls_strategy"] == tls_bypass.AUTO
+    assert android_entry._probe_strategy is None and android_entry._auto_pick_on
+    assert tls_bypass.active().text == tls_bypass.DEFAULT_STRATEGY
+    assert android_entry.check_tls_strategy("auto") == "" and android_entry.check_tls_strategy(" AUTO ") == ""
+
+
+@pytest.mark.parametrize("working, picked", [
+    ({tls_bypass.DEFAULT_STRATEGY, "--oob 0+sm", "tls"}, tls_bypass.DEFAULT_STRATEGY),
+    ({"--oob 0+sm", "--sni-parent"}, "--oob 0+sm"),  # the first that works, in order
+    ({"--sni-parent"}, "--sni-parent"),
+    ({"tls"}, None),  # only plain TLS: no reshaping
+])
+def test_auto_pick_uses_the_first_strategy_that_opens(monkeypatch, working, picked):
+    _start_auto(monkeypatch)
+    monkeypatch.setattr(android_entry.RawWebSocket, "connect", _connect_opening(lambda w: w in working))
+    asyncio.run(android_entry._auto_pick())
+    active = tls_bypass.active()
+    assert (active.text if active else None) == picked
+
+
+def test_auto_pick_keeps_the_strategy_when_nothing_opens(monkeypatch):
+    _start_auto(monkeypatch)
+    monkeypatch.setattr(android_entry.RawWebSocket, "connect", _connect_opening(lambda w: False))
+    asyncio.run(android_entry._auto_pick())
+    assert tls_bypass.active().text == tls_bypass.DEFAULT_STRATEGY
+
+
+def test_auto_pick_leaves_a_fixed_strategy_alone(monkeypatch):
+    _start_auto(monkeypatch, tls_strategy="--oob 0+sm")
+    monkeypatch.setattr(android_entry.RawWebSocket, "connect",
+                        _connect_opening(lambda w: w == "--sni-parent"))
+    asyncio.run(android_entry._auto_pick())
+    assert tls_bypass.active().text == "--oob 0+sm"
+
+
+def test_probe_cf_with_automatic_strategy_reports_and_switches(monkeypatch):
+    _start_auto(monkeypatch)
+    monkeypatch.setattr(android_entry.RawWebSocket, "connect",
+                        _connect_opening(lambda w: w in ("--sni-parent", "plain")))
+    assert json.loads(android_entry.probe_cf()) == {"tls": False, "bypass": True, "plain": True}
+    assert tls_bypass.active().text == "--sni-parent"
+    # Only plain TLS: "bypass" is false (nothing needed reshaping), "tls" true.
+    monkeypatch.setattr(android_entry.RawWebSocket, "connect",
+                        _connect_opening(lambda w: w == "tls"))
+    assert json.loads(android_entry.probe_cf()) == {"tls": True, "bypass": False, "plain": False}
+    assert tls_bypass.active() is None
 
 
 def test_outgoing_tls_closes_without_waiting_30s():

@@ -421,6 +421,8 @@ def _fake_connect(tls_ok: bool, bypass_ok: bool, plain_ok: bool, seen: list):
 
 def test_probe_cf_tells_tls_block_from_dead_network(monkeypatch):
     monkeypatch.setattr(android_entry.proxy_config, "fallback_cfproxy", True)
+    monkeypatch.setattr(android_entry, "_probe_strategy",
+                        android_entry.tls_bypass.parse(android_entry.tls_bypass.DEFAULT_STRATEGY))
     monkeypatch.setattr(android_entry.balancer, "domains", ["a.example", "b.example"])
     for tls_ok, bypass_ok, plain_ok in [(False, True, True), (False, False, True),
                                         (True, True, True), (False, False, False)]:

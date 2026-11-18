@@ -69,7 +69,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "fake_tls_domain": "",
     # AndMTProto only: see tls_bypass.py.
     "tls_bypass": True,
-    "tls_strategy": tls_bypass.DEFAULT_STRATEGY,
+    "tls_strategy": tls_bypass.AUTO,
 }
 
 # How far above a busy port to look for a free one.
@@ -221,23 +221,37 @@ def _apply_config(cfg: Dict[str, Any]) -> None:
     pc.force_test_dc = bool(cfg["force_test_dc"])
     pc.disable_secure = bool(cfg["no_secure"])
     pc.fake_tls_domain = fake_tls
-    tls_bypass.configure(strategy if cfg["tls_bypass"] else None, _bypass_domains)
-    global _probe_strategy
+    global _probe_strategy, _auto_pick_on
     _probe_strategy = strategy
+    _auto_pick_on = strategy is None and bool(cfg["tls_bypass"])
+    if strategy is None:  # automatic: the usual strategy until _auto_pick() has checked
+        strategy = tls_bypass.parse(tls_bypass.DEFAULT_STRATEGY)
+    tls_bypass.configure(strategy if cfg["tls_bypass"] else None, _bypass_domains)
 
 
-# The strategy probe_cf tries, set by start() even while the bypass is off.
-_probe_strategy = tls_bypass.parse(tls_bypass.DEFAULT_STRATEGY)
+# The strategy probe_cf tries, set by start() even while the bypass is off;
+# None: automatic, i.e. try every candidate (see _pick_strategy).
+_probe_strategy: Optional["tls_bypass.Strategy"] = None
+# The bypass is on with the automatic strategy: picks change what the core uses.
+_auto_pick_on = False
+_AUTO_PICK_DOMAINS = 2
 
 
-def _tls_strategy(cfg: Dict[str, Any]) -> "tls_bypass.Strategy":
-    text = str(cfg["tls_strategy"]).strip() or tls_bypass.DEFAULT_STRATEGY
+def _is_auto(text: str) -> bool:
+    return not text.strip() or text.strip().lower() == tls_bypass.AUTO
+
+
+def _tls_strategy(cfg: Dict[str, Any]) -> Optional["tls_bypass.Strategy"]:
+    """The configured strategy; None for the automatic one."""
+    text = str(cfg["tls_strategy"])
+    if _is_auto(text):
+        return None
     try:
         return tls_bypass.parse(text)
     except tls_bypass.StrategyError as exc:
         if cfg["tls_bypass"]:
             raise ConfigError("bad_tls_strategy", exc.token) from None
-        return tls_bypass.parse(tls_bypass.DEFAULT_STRATEGY)
+        return None
 
 
 def _bypass_domains() -> List[str]:
@@ -250,9 +264,9 @@ def _bypass_domains() -> List[str]:
 
 
 def check_tls_strategy(text: str) -> str:
-    """'' if `text` is a valid bypass strategy (empty means the default),
+    """'' if `text` is a valid bypass strategy ('auto' or empty: automatic),
     else the token that is not."""
-    if not text.strip():
+    if _is_auto(text):
         return ""
     try:
         tls_bypass.parse(text)
@@ -375,6 +389,7 @@ async def _run_until_stopped(stop_ev: asyncio.Event) -> None:
     run = asyncio.ensure_future(_run(stop_event=stop_ev))
     stopped = asyncio.ensure_future(stop_ev.wait())
     sampler = asyncio.ensure_future(_sample_connections())
+    picker = asyncio.ensure_future(_auto_pick()) if _auto_pick_on else None
     try:
         await asyncio.wait({run, stopped}, return_when=asyncio.FIRST_COMPLETED)
         if not run.done() and tg_ws_proxy._server_instance is None:
@@ -388,6 +403,8 @@ async def _run_until_stopped(stop_ev: asyncio.Event) -> None:
     finally:
         stopped.cancel()
         sampler.cancel()
+        if picker is not None:
+            picker.cancel()
 
 
 def _describe_error(exc: BaseException) -> Dict[str, Any]:
@@ -496,6 +513,9 @@ def start(cfg_json: str, log_dir: str) -> Optional[str]:
         _check_core_tls()
         if proxy_config.disable_secure:
             log.info("AndMTProto: CF proxy without TLS (port 80)")
+        elif cfg["tls_bypass"] and _probe_strategy is None:
+            log.info("AndMTProto: TLS-blocking bypass on, automatic strategy; "
+                     "using %s until the check picks one", tls_bypass.DEFAULT_STRATEGY)
         elif cfg["tls_bypass"]:
             log.info("AndMTProto: TLS-blocking bypass on: %s", _probe_strategy.text)
         else:
@@ -621,15 +641,66 @@ async def _ws_opens(domain: str, secure: bool, timeout: float,
     return True
 
 
+async def _pick_strategy(domains: List[str], timeout: float) -> Any:
+    """Tries every candidate strategy, then plain TLS, on `domains` at once.
+    Returns the first in tls_bypass.CANDIDATES order that opened, False if
+    only plain TLS did, or None if nothing did."""
+    hosts = [f"kws2.{d}" for d in domains]
+    options: List[Any] = [tls_bypass.parse(t) for t in tls_bypass.CANDIDATES] + [False]
+    results = await asyncio.gather(
+        *(_ws_opens(h, True, timeout, option) for option in options for h in hosts))
+    n = len(hosts)
+    for i, option in enumerate(options):
+        if any(results[i * n:(i + 1) * n]):
+            return option
+    return None
+
+
+def _use_pick(choice: Any) -> None:
+    """Applies a _pick_strategy result while the automatic strategy is on."""
+    if not _auto_pick_on:
+        return
+    if choice is None:
+        current = tls_bypass.active()
+        log.warning("AndMTProto: automatic TLS strategy: nothing got through over "
+                    "TLS; keeping %s", current.text if current else "plain TLS")
+        return
+    tls_bypass.set_active(choice or None)
+    log.info("AndMTProto: automatic TLS strategy: %s",
+             choice.text if choice else "plain TLS (no strategy got through, plain TLS did)")
+
+
+def _probe_domains(count: int) -> List[str]:
+    pool = list(balancer.domains or proxy_config.cfproxy_user_domains
+                or CFPROXY_DEFAULT_DOMAINS)
+    return random.sample(pool, min(count, len(pool)))
+
+
+async def _auto_pick() -> None:
+    """At core start, picks the automatic strategy for this network."""
+    try:
+        _use_pick(await _pick_strategy(_probe_domains(_AUTO_PICK_DOMAINS), _PROBE_TIMEOUT_S))
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        log.warning("AndMTProto: automatic TLS strategy check failed: %r", exc)
+
+
 async def _probe_cf(domains: List[str], timeout: float,
                     strategy: Any) -> Dict[str, bool]:
     hosts = [f"kws2.{d}" for d in domains]
-    ways = [(True, False), (True, strategy), (False, False)]
-    results = await asyncio.gather(
-        *(_ws_opens(h, secure, timeout, bypass) for secure, bypass in ways for h in hosts))
+    ways = [(True, False), (False, False)] + ([] if strategy is None else [(True, strategy)])
+    results, choice = await asyncio.gather(
+        asyncio.gather(*(_ws_opens(h, secure, timeout, bypass)
+                         for secure, bypass in ways for h in hosts)),
+        _pick_strategy(domains, timeout) if strategy is None else asyncio.sleep(0))
     n = len(hosts)
-    return {"tls": any(results[:n]), "bypass": any(results[n:2 * n]),
-            "plain": any(results[2 * n:])}
+    if strategy is None:
+        _use_pick(choice)
+        bypass = bool(choice)  # a Strategy; False is plain TLS
+    else:
+        bypass = any(results[2 * n:])
+    return {"tls": any(results[:n]), "bypass": bypass, "plain": any(results[n:2 * n])}
 
 
 def probe_cf(timeout: float = _PROBE_TIMEOUT_S) -> str:
@@ -641,12 +712,12 @@ def probe_cf(timeout: float = _PROBE_TIMEOUT_S) -> str:
     to tell that apart from a dead network. Tries a few domains at once in its
     own event loop, so it can run next to the proxy thread. Returns JSON
     {"tls": bool, "bypass": bool, "plain": bool}, or {} when the CF proxy is off.
+    With the automatic strategy, "bypass" means some candidate got through,
+    and the best one becomes the strategy in use.
     """
     if not proxy_config.fallback_cfproxy:
         return json.dumps({})
-    pool = list(balancer.domains or proxy_config.cfproxy_user_domains
-                or CFPROXY_DEFAULT_DOMAINS)
-    domains = random.sample(pool, min(_PROBE_DOMAINS, len(pool)))
+    domains = _probe_domains(_PROBE_DOMAINS)
     return json.dumps(asyncio.run(_probe_cf(domains, timeout, _probe_strategy)))
 
 

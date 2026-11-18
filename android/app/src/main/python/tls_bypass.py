@@ -44,6 +44,11 @@ log = logging.getLogger('tg-mtproto-proxy')
 
 DEFAULT_STRATEGY = "--tlsrec 0+sm --split 2+sm"
 
+# "Automatic": android_entry tries CANDIDATES (in this order of preference) and
+# uses the first that gets through; ProxySettings.kt lists the same presets.
+AUTO = "auto"
+CANDIDATES = (DEFAULT_STRATEGY, "--tlsrec 0+sm --oob 2+sm", "--oob 0+sm", "--sni-parent")
+
 _POS = re.compile(r"^(-?\d+)(?::(\d+)(?::(\d+))?)?(?:\+([sn])([me])?)?$")
 _KWS = re.compile(r"^kws\d+\.(.+)$")
 
@@ -215,6 +220,16 @@ def configure(strategy: Optional[Strategy], domains: Callable[[], Iterable[str]]
     _strategy = strategy
     _domains = domains
     _install()
+
+
+def set_active(strategy: Optional[Strategy]) -> None:
+    """Switches the strategy new connections use (None: plain TLS), keeping the hosts."""
+    global _strategy
+    _strategy = strategy
+
+
+def active() -> Optional[Strategy]:
+    return _strategy
 
 
 def _matches(host: str, domains: Iterable[str]) -> bool:

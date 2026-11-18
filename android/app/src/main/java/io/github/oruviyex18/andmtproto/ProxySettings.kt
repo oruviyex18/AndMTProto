@@ -41,7 +41,7 @@ data class ProxySettings(
     val noSecure: Boolean = false,
     /** Android-only: TLS-blocking bypass for the CF proxy (tls_bypass.py); on by default. */
     val tlsBypass: Boolean = true,
-    /** Android-only: the bypass strategy, ByeDPI-style ([TlsStrategies]). */
+    /** Android-only: the bypass strategy, ByeDPI-style or "auto" ([TlsStrategies]). */
     val tlsStrategy: String = TlsStrategies.DEFAULT,
     val verbose: Boolean = false,
     /** Android-only; ignored by the Python core. On for new installs. */
@@ -132,14 +132,21 @@ enum class CfTransport {
 
 /** Ready-made bypass strategies; the syntax is described in tls_bypass.py. */
 object TlsStrategies {
+    /**
+     * The core tries the presets below in this order (tls_bypass.CANDIDATES) at
+     * every start and when it gets stuck, and uses the first that gets through.
+     */
+    const val AUTO = "auto"
+    const val DEFAULT = AUTO
+
     /** Two TLS records split inside the name, sent as two TCP segments. Tested on 18 Nov 2026. */
-    const val DEFAULT = "--tlsrec 0+sm --split 2+sm"
+    const val SPLIT = "--tlsrec 0+sm --split 2+sm"
     const val RECORDS_OOB = "--tlsrec 0+sm --oob 2+sm"
     const val OOB = "--oob 0+sm"
     const val PARENT_SNI = "--sni-parent"
 
     /** Presets in the order the settings list them. */
-    val PRESETS = listOf(DEFAULT, RECORDS_OOB, OOB, PARENT_SNI)
+    val PRESETS = listOf(AUTO, SPLIT, RECORDS_OOB, OOB, PARENT_SNI)
 }
 
 class SettingsStore(context: Context) {

@@ -47,6 +47,7 @@ private val TRANSPORTS = listOf(
 
 /** Same order as [TlsStrategies.PRESETS]. */
 private val PRESET_CHOICES = listOf(
+    Choice(R.string.tls_strategy_auto, R.string.tls_strategy_auto_body),
     Choice(R.string.tls_strategy_default, R.string.tls_strategy_default_body),
     Choice(R.string.tls_strategy_records_oob, R.string.tls_strategy_records_oob_body),
     Choice(R.string.tls_strategy_oob, R.string.tls_strategy_oob_body),
