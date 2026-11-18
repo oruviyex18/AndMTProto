@@ -43,7 +43,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val telegramLinked: StateFlow<Boolean> = _telegramLinked.asStateFlow()
     val update: StateFlow<UpdateCheck.Available?> = _update.asStateFlow()
 
-    /** "Update the app": checking, downloading, installing (see [AppUpdater]). */
+    /** "Update the app": checking GitHub (see [AppUpdater]). */
     val updater: StateFlow<AppUpdater.State> = AppUpdater.state
 
     /** The user closed the MIUI background / Autostart card by hand (see [BatteryCard], [MiuiAutostartCard]). */
@@ -125,21 +125,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return link()?.replace(secret, "••••••••" + secret.takeLast(4))
     }
 
-    fun startUpdate() = AppUpdater.start(getApplication())
-
-    /**
-     * The main screen is shown again: pick up a release the daily check found meanwhile
-     * (its notification opens this screen), and continue an update if "Install unknown
-     * apps" was just allowed.
-     */
-    fun onScreenResumed() {
-        if (updater.value is AppUpdater.State.Idle) _update.value = UpdateCheck.available(getApplication())
-        AppUpdater.resume(getApplication())
+    /** "Update the app": a newer release then shows the update card. */
+    fun startUpdate() {
+        viewModelScope.launch {
+            AppUpdater.check(getApplication())
+            _update.value = UpdateCheck.available(getApplication())
+        }
     }
 
-    fun cancelUpdate() = AppUpdater.cancel(getApplication())
-
-    fun confirmUpdate() = AppUpdater.confirm(getApplication())
+    /** The main screen is shown again: pick up a release the daily check found meanwhile. */
+    fun onScreenResumed() {
+        _update.value = UpdateCheck.available(getApplication())
+    }
 
     fun closeUpdate() {
         AppUpdater.acknowledge()

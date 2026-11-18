@@ -34,22 +34,17 @@ object UpdateCheck {
     private const val KEY_NOTIFIED = "notified_version"
     private const val KEY_LATEST = "latest_version"
     private const val KEY_LATEST_URL = "latest_url"
+    private const val KEY_LATEST_APK = "latest_apk_url"
     private const val KEY_DISMISSED = "dismissed_version"
 
-    /** A newer release found by the last check, for the main screen. */
-    data class Available(val version: String, val url: String)
-
     /**
-     * The latest release: its version, page, and the APK attached to it ([apkUrl]
-     * is empty if it has none). [sha256] is GitHub's digest of that file (hex), if given.
+     * A newer release found by the last check, for the main screen: its page [url]
+     * and the APK's download link [apkUrl] (empty if unknown; the page then).
      */
-    data class Release(
-        val version: String,
-        val pageUrl: String,
-        val apkUrl: String,
-        val apkSize: Long,
-        val sha256: String?,
-    )
+    data class Available(val version: String, val url: String, val apkUrl: String)
+
+    /** The latest release: its version, page, and the APK attached to it ([apkUrl] is empty if none). */
+    data class Release(val version: String, val pageUrl: String, val apkUrl: String)
 
     /** The newer release from the last check, unless installed meanwhile or dismissed. */
     fun available(context: Context): Available? {
@@ -57,13 +52,22 @@ object UpdateCheck {
         val version = prefs.getString(KEY_LATEST, null) ?: return null
         if (!isNewer(version, BuildConfig.VERSION_NAME)) return null
         if (prefs.getString(KEY_DISMISSED, null) == version) return null
-        return Available(version, prefs.getString(KEY_LATEST_URL, null).orEmpty())
+        return Available(
+            version,
+            prefs.getString(KEY_LATEST_URL, null).orEmpty(),
+            prefs.getString(KEY_LATEST_APK, null).orEmpty(),
+        )
     }
 
-    /** Keeps [release] as the newest known one, as the daily check does. */
-    fun remember(context: Context, release: Release) {
+    /**
+     * Keeps [release] as the newest known one. [dismissed] false (the user asked
+     * for an update) shows it again even if "Later" hid it before.
+     */
+    fun remember(context: Context, release: Release, dismissed: Boolean = true) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {
             putString(KEY_LATEST, release.version).putString(KEY_LATEST_URL, release.pageUrl)
+                .putString(KEY_LATEST_APK, release.apkUrl)
+            if (!dismissed) remove(KEY_DISMISSED)
         }
     }
 
@@ -108,10 +112,10 @@ object UpdateCheck {
             return
         }
         val release = fetchLatest() ?: return
-        val (version, url) = release.version to release.pageUrl
+        val version = release.version
         if (!isNewer(version, BuildConfig.VERSION_NAME)) return
+        remember(context, release)
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        prefs.edit { putString(KEY_LATEST, version).putString(KEY_LATEST_URL, url) }
         if (prefs.getString(KEY_NOTIFIED, null) == version) return
         Log.i(TAG, "New version $version available")
         context.getSystemService(NotificationManager::class.java)
@@ -136,13 +140,10 @@ object UpdateCheck {
             val assets = o.optJSONArray("assets")
             val apk = (0 until (assets?.length() ?: 0)).map { assets!!.getJSONObject(it) }
                 .firstOrNull { it.optString("name").endsWith(".apk") }
-            val digest = apk?.optString("digest").orEmpty()
             return Release(
                 version = tag.removePrefix(TAG_PREFIX),
                 pageUrl = o.optString("html_url"),
                 apkUrl = apk?.optString("browser_download_url").orEmpty(),
-                apkSize = apk?.optLong("size") ?: 0L,
-                sha256 = digest.removePrefix("sha256:").lowercase().takeIf { digest.startsWith("sha256:") },
             )
         } finally {
             conn.disconnect()

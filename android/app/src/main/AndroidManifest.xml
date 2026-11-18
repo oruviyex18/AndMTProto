@@ -9,8 +9,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- "Update the app" (AppUpdater) installs the APK from the GitHub release. -->
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Lets resolveActivity() see Telegram for tg:// links on Android 11+. -->
     <queries>
@@ -69,20 +67,6 @@
             android:name=".UpdateCheckJob"
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
-
-        <!-- The system installer's progress for AppUpdater. -->
-        <receiver
-            android:name=".InstallStatusReceiver"
-            android:exported="false" />
-
-        <!-- After an update: restarts the proxy if it ran before (AppUpdater.onUpdated). -->
-        <receiver
-            android:name=".UpdatedReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-            </intent-filter>
-        </receiver>
 
         <!-- Disabled until the user turns on "Start on boot" (BootReceiver.setEnabled). -->
         <receiver

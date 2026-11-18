@@ -15,6 +15,7 @@ class App : Application() {
         // update it stays off until the app runs once, so re-apply the setting here.
         val settings = SettingsStore(this).load()
         BootReceiver.setEnabled(this, settings.startOnBoot)
+        AppUpdater.cleanUp(this)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = getSystemService(NotificationManager::class.java)

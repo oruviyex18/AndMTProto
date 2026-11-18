@@ -128,12 +128,9 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
                 available = update,
                 onUpdate = vm::startUpdate,
                 onLater = vm::dismissUpdate,
-                onCancel = vm::cancelUpdate,
-                onConfirm = vm::confirmUpdate,
                 onClose = vm::closeUpdate,
             )
-            VersionFooter(status.coreVersion, updating = updater !is AppUpdater.State.Idle &&
-                updater !is AppUpdater.State.UpToDate && updater !is AppUpdater.State.Failed,
+            VersionFooter(status.coreVersion, updating = updater is AppUpdater.State.Checking,
                 onUpdate = vm::startUpdate)
         }
     }
@@ -145,7 +142,7 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
             vm.closeUpdate()
         }
     }
-    // Back from the notification or the "Install unknown apps" screen.
+    // Back from the update notification: show the release it found.
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(lifecycle) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) { vm.onScreenResumed() }
@@ -183,7 +180,7 @@ private fun VersionFooter(coreVersion: String, updating: Boolean, onUpdate: () -
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        // Checks GitHub, then downloads and installs a newer release (AppUpdater).
+        // Checks GitHub; a newer release shows the update card (AppUpdater).
         TextButton(onClick = onUpdate, enabled = !updating) { Text(stringResource(R.string.check_updates)) }
     }
 }
