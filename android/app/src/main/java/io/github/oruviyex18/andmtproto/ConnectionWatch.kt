@@ -10,9 +10,11 @@ import android.telephony.TelephonyManager
 
 /**
  * Notices when Telegram keeps opening connections through the proxy but nothing
- * gets through: no connection is routed and no bytes come back for [windowMs]
- * while at least [minAttempts] new connections arrived. That is what a dead or
- * blocked upstream network looks like from inside the proxy.
+ * gets through: no bytes come back for [windowMs] while at least [minAttempts]
+ * new connections arrived. That is what a dead or blocked upstream network looks
+ * like from inside the proxy. A connection routed upstream is not progress by
+ * itself: on 18 Nov 2026 Beeline LTE let the CF proxy's WebSockets open over
+ * the TLS split, and then nothing came back on them.
  */
 internal class StallDetector(
     private val windowMs: Long = 60_000,
@@ -20,20 +22,18 @@ internal class StallDetector(
 ) {
     private var lastProgressAt = -1L
     private var totalAtProgress = 0
-    private var routed = 0
     private var bytesDown = 0L
 
-    /** The last [update] saw traffic or a newly routed connection. */
+    /** The last [update] saw bytes coming back. */
     var progressed = false
         private set
 
     /** Feeds one status sample taken at [now] (ms); true while the proxy looks stuck. */
     fun update(status: ProxyStatus, now: Long): Boolean {
-        progressed = lastProgressAt < 0 || status.routed != routed || status.bytesDown != bytesDown
+        progressed = lastProgressAt < 0 || status.bytesDown != bytesDown
         if (progressed) {
             lastProgressAt = now
             totalAtProgress = status.total
-            routed = status.routed
             bytesDown = status.bytesDown
             return false
         }

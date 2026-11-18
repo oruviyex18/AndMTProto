@@ -1,4 +1,5 @@
 """Desktop smoke test for the Android adapter; runs against the upstream proxy/."""
+import asyncio
 import json
 import re
 import os
@@ -403,10 +404,23 @@ def test_note_writes_dated_line_to_log(tmp_path):
 
 
 class _FakeWs:
+    """An open RawWebSocket; Telegram answers the probe unless `silent`."""
+    def __init__(self, silent: bool = False):
+        self.silent = silent
+        self.sent = []
+
     class writer:  # noqa: N801 - mimics RawWebSocket.writer
         @staticmethod
         def close():
             pass
+
+    async def send(self, data: bytes):
+        self.sent.append(data)
+
+    async def recv(self):
+        if self.silent:
+            await asyncio.sleep(3600)
+        return b"resPQ"
 
 
 def _fake_connect(tls_ok: bool, bypass_ok: bool, plain_ok: bool, seen: list):
@@ -434,6 +448,40 @@ def test_probe_cf_tells_tls_block_from_dead_network(monkeypatch):
         # Both domains, each over plain TLS, bypassed TLS and port 80, on the DC2 host.
         assert sorted(seen) == sorted((f"kws2.{d}", way) for d in ("a.example", "b.example")
                                       for way in ("tls", "bypass", "plain"))
+
+
+def test_probe_cf_needs_an_answer_not_just_an_open_websocket(monkeypatch):
+    """Beeline LTE, 18 Nov 2026: over the TLS split the CF proxy's WebSocket
+    opened but no data came back. That counts as blocked."""
+    monkeypatch.setattr(android_entry.proxy_config, "fallback_cfproxy", True)
+    monkeypatch.setattr(android_entry, "_probe_strategy",
+                        android_entry.tls_bypass.parse(android_entry.tls_bypass.DEFAULT_STRATEGY))
+    monkeypatch.setattr(android_entry.balancer, "domains", ["a.example"])
+    sockets = []
+
+    async def connect(host, domain, timeout=10.0, path='/apiws', *, sni=None, secure=True):
+        ws = _FakeWs(silent=secure)  # TLS opens but stays silent; port 80 answers
+        sockets.append(ws)
+        return ws
+    monkeypatch.setattr(android_entry.RawWebSocket, "connect", connect)
+    assert json.loads(android_entry.probe_cf(timeout=0.3)) == {
+        "tls": False, "bypass": False, "plain": True}
+    # Each check sent what Telegram sends first: the 64-byte start, then req_pq_multi.
+    start, request = sockets[0].sent
+    assert len(start) == 64 and len(request) == 41
+
+
+def test_probe_request_is_req_pq_multi_for_dc2():
+    from proxy._aes import Cipher, algorithms, modes
+    start, request = android_entry._probe_request()
+    decryptor = Cipher(algorithms.AES(start[8:40]), modes.CTR(start[40:56])).encryptor()
+    plain_start = decryptor.update(start)
+    assert plain_start[56:60] == android_entry.proxy_utils.PROTO_TAG_ABRIDGED
+    assert int.from_bytes(plain_start[60:62], "little", signed=True) == 2
+    body = decryptor.update(request)
+    assert body[0] == 10 and body[1:9] == bytes(8)  # 40 bytes; no auth key yet
+    assert int.from_bytes(body[17:21], "little") == 20
+    assert int.from_bytes(body[21:25], "little") == 0xBE7E8EF1
 
 
 def test_probe_cf_skipped_without_cf_proxy(monkeypatch):

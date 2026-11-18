@@ -232,7 +232,7 @@ class ProxyService : Service() {
     }
 
     private fun noteProbe(on: Network, probe: ProxyCore.CfProbe) {
-        fun word(ok: Boolean) = if (ok) "opens" else "blocked"
+        fun word(ok: Boolean) = if (ok) "works" else "blocked"
         ProxyCore.note(
             "CF proxy check over ${describeNetwork(on)}: TLS ${word(probe.tls)}, " +
                 "TLS with the bypass ${word(probe.bypass)}, without TLS ${word(probe.plain)}"

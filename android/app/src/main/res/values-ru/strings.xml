@@ -120,7 +120,7 @@
     <string name="tls_strategy_auto">Автоматически (рекомендуется)</string>
     <string name="tls_strategy_auto_body">AndMTProto сам проверяет стратегии из этого списка при каждом запуске, при смене сети и если Telegram перестал получать данные, и использует первую рабочую. Какую он выбрал, видно в логе.</string>
     <string name="tls_strategy_default">Разделить запись TLS</string>
-    <string name="tls_strategy_default_body">Две записи TLS, разделённые внутри имени сайта, уходят двумя TCP-пакетами. Проверено на Wi-Fi и мобильном интернете.</string>
+    <string name="tls_strategy_default_body">Две записи TLS, разделённые внутри имени сайта, уходят двумя TCP-пакетами. Работает во многих сетях, но в мобильном интернете Билайна (18 ноября 2026) соединение открывалось, но данные не шли; «Автоматически» тогда выбирает другую стратегию.</string>
     <string name="tls_strategy_records_oob">Разделить запись TLS + OOB-байт</string>
     <string name="tls_strategy_records_oob_body">То же и ещё один внеполосный (OOB) байт. Через некоторые VPN и роутеры может не работать.</string>
     <string name="tls_strategy_oob">Только OOB-байт</string>
