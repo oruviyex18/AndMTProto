@@ -113,7 +113,10 @@ class ProxyService : Service() {
         }
         coreNetwork = network ?: connectivity.activeNetwork
         lostSinceStart = false
+        ProxyCore.note(deviceSummary())
+        ProxyCore.note(settingsSummary(current, SettingsStore(this).noSecureAuto))
         ProxyCore.note("Network: ${describeNetwork(coreNetwork)}")
+        ProxyCore.note(networkDetails(coreNetwork))
         delay(STARTUP_POLL_MS)
         var shown: ProxyStatus? = null
         var listened = false
