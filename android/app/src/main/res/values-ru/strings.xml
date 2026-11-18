@@ -10,7 +10,7 @@
     <string name="status_stopped">Прокси остановлен</string>
     <string name="stale_proxy_hint">В Telegram добавлено несколько прокси AndMTProto, или некоторые из них устарели. Удалите лишние прокси в Telegram (Настройки → Данные и память → Настройки прокси) и отключите «Автопереключение прокси». Затем перезапустите Telegram: до этого он продолжает проверять удалённые записи. Карточка исчезнет примерно через 10 минут после последнего отклонённого подключения.</string>
     <string name="core_version">Ядро прокси %1$s · приложение %2$s</string>
-    <string name="check_updates">Проверить обновления</string>
+    <string name="check_updates">Обновить программу</string>
     <string name="copy_link">Копировать ссылку</string>
     <string name="link_copied">Ссылка скопирована</string>
     <string name="telegram_not_found">Telegram не установлен. Скопируйте ссылку.</string>
@@ -58,7 +58,7 @@
     <string name="check_updates_daily">Ежедневно проверять обновления</string>
     <string name="channel_updates">Обновления</string>
     <string name="update_available_title">Доступна версия AndMTProto %1$s</string>
-    <string name="update_available_text">У вас %1$s. Нажмите, чтобы открыть страницу релиза.</string>
+    <string name="update_available_text">У вас %1$s. Нажмите, чтобы открыть AndMTProto и обновить.</string>
     <string name="start_on_boot">Запускать при включении телефона</string>
     <string name="saved">Сохранено</string>
     <string name="invalid_number">%1$s: нужно число</string>
@@ -88,9 +88,8 @@
     <string name="card_no_secure_auto_title">CF-прокси работает без TLS</string>
     <string name="card_no_secure_auto_body">Сеть блокирует CF-прокси по TLS, даже с обходом блокировки, но пропускает его без TLS, поэтому AndMTProto сам переключил «Подключение к CF» на «Без TLS (порт 80)». Когда TLS с обходом снова заработает, он вернётся к нему сам. Переписка по-прежнему зашифрована самим Telegram.</string>
     <string name="card_done">Готово</string>
-    <string name="card_update_body">У вас %1$s. Откройте страницу релиза, чтобы скачать APK.</string>
+    <string name="card_update_body">У вас %1$s. AndMTProto скачает обновление с GitHub и установит его; Android попросит подтвердить.</string>
     <string name="card_later">Позже</string>
-    <string name="card_open">Открыть</string>
     <string name="section_connection">Подключение</string>
     <string name="section_route">Маршрут</string>
     <string name="section_masking">Маскировка</string>
@@ -133,4 +132,27 @@
     <string name="tls_strategy_field">Стратегия (как в ByeDPI)</string>
     <string name="tls_strategy_help">--tlsrec — разделить запись TLS, --split — разделить TCP, --oob — то же с OOB-байтом. Позиция: число, +s — от начала имени сайта, +sm — от середины, +se — от конца. Ещё --sni-parent.</string>
     <string name="error_bad_tls_strategy">Стратегия обхода: не понимаю «%1$s».</string>
+    <string name="update_now">Обновить</string>
+    <string name="update_whats_new">Что нового</string>
+    <string name="update_checking">Проверяю обновления…</string>
+    <string name="update_up_to_date">Установлена последняя версия: %1$s</string>
+    <string name="update_permission_title">Разрешите установку обновления</string>
+    <string name="update_permission_body">Android устанавливает приложения из файлов только с разрешения. Откройте настройки, включите «Разрешить установку из этого источника» для AndMTProto и вернитесь сюда: загрузка начнётся сама.</string>
+    <string name="update_permission_button">Открыть настройки</string>
+    <string name="update_downloading_title">Загрузка AndMTProto %1$s</string>
+    <string name="update_downloading_progress">%1$s из %2$s</string>
+    <string name="update_installing_title">Установка AndMTProto %1$s</string>
+    <string name="update_installing_body">Подтвердите установку в окне Android. На время установки прокси остановится, а потом запустится сам.</string>
+    <string name="update_failed_title">Не удалось обновить</string>
+    <string name="update_failed_network">Нет связи с GitHub, или загрузка прервалась.</string>
+    <string name="update_failed_no_apk">В последнем выпуске нет файла APK.</string>
+    <string name="update_failed_checksum">Скачанный файл повреждён: контрольная сумма не совпадает с указанной на GitHub.</string>
+    <string name="update_failed_not_ours">Этот файл не может обновить установленную сборку. Если у вас тестовая сборка, установите выпуск вручную.</string>
+    <string name="update_failed_install">Android не установил обновление.</string>
+    <string name="update_failed_cancelled">Установка отменена.</string>
+    <string name="update_failed_detail">%1$s (%2$s)</string>
+    <string name="update_retry">Повторить</string>
+    <string name="update_in_browser">В браузере</string>
+    <string name="update_cancel">Отмена</string>
+    <string name="update_close">Закрыть</string>
 </resources>

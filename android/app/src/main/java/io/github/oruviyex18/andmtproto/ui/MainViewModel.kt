@@ -7,6 +7,7 @@ import androidx.annotation.StringRes
 import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.oruviyex18.andmtproto.AppUpdater
 import io.github.oruviyex18.andmtproto.ProxyCore
 import io.github.oruviyex18.andmtproto.ProxyService
 import io.github.oruviyex18.andmtproto.ProxySettings
@@ -41,6 +42,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     val telegramLinked: StateFlow<Boolean> = _telegramLinked.asStateFlow()
     val update: StateFlow<UpdateCheck.Available?> = _update.asStateFlow()
+
+    /** "Update the app": checking, downloading, installing (see [AppUpdater]). */
+    val updater: StateFlow<AppUpdater.State> = AppUpdater.state
 
     /** The user closed the MIUI background / Autostart card by hand (see [BatteryCard], [MiuiAutostartCard]). */
     val miuiBackgroundDone: StateFlow<Boolean> = backgroundDone.state
@@ -119,6 +123,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun maskedLink(): String? {
         val secret = _saved.value.secret
         return link()?.replace(secret, "••••••••" + secret.takeLast(4))
+    }
+
+    fun startUpdate() = AppUpdater.start(getApplication())
+
+    /** Back from the "Install unknown apps" screen: continue if it was allowed. */
+    fun resumeUpdate() = AppUpdater.resume(getApplication())
+
+    fun cancelUpdate() = AppUpdater.cancel()
+
+    fun closeUpdate() {
+        AppUpdater.acknowledge()
+        _update.value = UpdateCheck.available(getApplication())
     }
 
     fun dismissUpdate() {

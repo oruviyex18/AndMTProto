@@ -13,7 +13,6 @@ import android.content.Intent
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.edit
-import androidx.core.net.toUri
 import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -40,6 +39,18 @@ object UpdateCheck {
     /** A newer release found by the last check, for the main screen. */
     data class Available(val version: String, val url: String)
 
+    /**
+     * The latest release: its version, page, and the APK attached to it ([apkUrl]
+     * is empty if it has none). [sha256] is GitHub's digest of that file (hex), if given.
+     */
+    data class Release(
+        val version: String,
+        val pageUrl: String,
+        val apkUrl: String,
+        val apkSize: Long,
+        val sha256: String?,
+    )
+
     /** The newer release from the last check, unless installed meanwhile or dismissed. */
     fun available(context: Context): Available? {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -47,6 +58,13 @@ object UpdateCheck {
         if (!isNewer(version, BuildConfig.VERSION_NAME)) return null
         if (prefs.getString(KEY_DISMISSED, null) == version) return null
         return Available(version, prefs.getString(KEY_LATEST_URL, null).orEmpty())
+    }
+
+    /** Keeps [release] as the newest known one, as the daily check does. */
+    fun remember(context: Context, release: Release) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {
+            putString(KEY_LATEST, release.version).putString(KEY_LATEST_URL, release.pageUrl)
+        }
     }
 
     fun dismiss(context: Context, version: String) {
@@ -89,19 +107,20 @@ object UpdateCheck {
             schedule(context, false)
             return
         }
-        val (version, url) = fetchLatest() ?: return
+        val release = fetchLatest() ?: return
+        val (version, url) = release.version to release.pageUrl
         if (!isNewer(version, BuildConfig.VERSION_NAME)) return
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs.edit { putString(KEY_LATEST, version).putString(KEY_LATEST_URL, url) }
         if (prefs.getString(KEY_NOTIFIED, null) == version) return
         Log.i(TAG, "New version $version available")
         context.getSystemService(NotificationManager::class.java)
-            .notify(NOTIFICATION_ID, buildNotification(context, version, url))
+            .notify(NOTIFICATION_ID, buildNotification(context, version))
         prefs.edit { putString(KEY_NOTIFIED, version) }
     }
 
-    /** (versionName, release page URL) of the latest release, or null if the tag isn't ours. */
-    private fun fetchLatest(): Pair<String, String>? {
+    /** The latest release, or null if its tag isn't ours; throws [IOException] on network errors. */
+    fun fetchLatest(): Release? {
         val conn = URL(LATEST_URL).openConnection() as HttpURLConnection
         try {
             conn.connectTimeout = 15_000
@@ -114,7 +133,17 @@ object UpdateCheck {
             val o = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
             val tag = o.optString("tag_name")
             if (!tag.startsWith(TAG_PREFIX)) return null
-            return tag.removePrefix(TAG_PREFIX) to o.optString("html_url")
+            val assets = o.optJSONArray("assets")
+            val apk = (0 until (assets?.length() ?: 0)).map { assets!!.getJSONObject(it) }
+                .firstOrNull { it.optString("name").endsWith(".apk") }
+            val digest = apk?.optString("digest").orEmpty()
+            return Release(
+                version = tag.removePrefix(TAG_PREFIX),
+                pageUrl = o.optString("html_url"),
+                apkUrl = apk?.optString("browser_download_url").orEmpty(),
+                apkSize = apk?.optLong("size") ?: 0L,
+                sha256 = digest.removePrefix("sha256:").lowercase().takeIf { digest.startsWith("sha256:") },
+            )
         } finally {
             conn.disconnect()
         }
@@ -140,10 +169,10 @@ object UpdateCheck {
         return core + List(maxOf(0, 4 - core.size)) { 0 } + m.groupValues[2].toInt()
     }
 
-    private fun buildNotification(context: Context, version: String, url: String): Notification {
-        val page = url.ifBlank { context.getString(R.string.latest_release_url) }
+    /** Opens the app, whose main screen shows the update card with "Update". */
+    private fun buildNotification(context: Context, version: String): Notification {
         val open = PendingIntent.getActivity(
-            context, 3, Intent(Intent.ACTION_VIEW, page.toUri()), PendingIntent.FLAG_IMMUTABLE
+            context, 3, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
         )
         return NotificationCompat.Builder(context, App.UPDATES_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)

@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,8 +30,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import io.github.oruviyex18.andmtproto.AppUpdater
 import io.github.oruviyex18.andmtproto.BuildConfig
 import io.github.oruviyex18.andmtproto.ProxyCore
 import io.github.oruviyex18.andmtproto.ProxyService
@@ -61,6 +66,7 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
     val status by vm.status.collectAsStateWithLifecycle()
     val linked by vm.telegramLinked.collectAsStateWithLifecycle()
     val update by vm.update.collectAsStateWithLifecycle()
+    val updater by vm.updater.collectAsStateWithLifecycle()
     val stalled by ProxyCore.stalled.collectAsStateWithLifecycle()
     val noSecureAuto by vm.noSecureAuto.collectAsStateWithLifecycle()
     val miuiBackgroundDone by vm.miuiBackgroundDone.collectAsStateWithLifecycle()
@@ -117,11 +123,32 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
             }
             BatteryCard(dismissed = miuiBackgroundDone, onDismiss = vm::markMiuiBackgroundDone)
             MiuiAutostartCard(dismissed = miuiAutostartDone, onDismiss = vm::markMiuiAutostartDone)
-            update?.let { UpdateCard(it, onLater = vm::dismissUpdate) }
-            VersionFooter(status.coreVersion)
+            UpdateSection(
+                state = updater,
+                available = update,
+                onUpdate = vm::startUpdate,
+                onLater = vm::dismissUpdate,
+                onCancel = vm::cancelUpdate,
+                onClose = vm::closeUpdate,
+            )
+            VersionFooter(status.coreVersion, updating = updater !is AppUpdater.State.Idle &&
+                updater !is AppUpdater.State.UpToDate && updater !is AppUpdater.State.Failed,
+                onUpdate = vm::startUpdate)
         }
     }
     if (logShown) LogSheet(onDismiss = { logShown = false })
+
+    (updater as? AppUpdater.State.UpToDate)?.let { upToDate ->
+        LaunchedEffect(upToDate) {
+            context.toast(upToDateText(context, upToDate))
+            vm.closeUpdate()
+        }
+    }
+    // Back from the "Install unknown apps" screen: carry on if it was allowed.
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) { vm.resumeUpdate() }
+    }
 }
 
 /** Starts the proxy, asking for the notification permission first on Android 13+. */
@@ -146,9 +173,7 @@ private fun rememberProxyStarter(): () -> Unit {
 }
 
 @Composable
-private fun VersionFooter(coreVersion: String) {
-    val context = LocalContext.current
-    val releasesUrl = stringResource(R.string.latest_release_url)
+private fun VersionFooter(coreVersion: String, updating: Boolean, onUpdate: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         if (coreVersion.isNotEmpty()) {
             Text(
@@ -157,7 +182,7 @@ private fun VersionFooter(coreVersion: String) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        // The release page shows the newest APK and its notes; the user compares versions there.
-        TextButton(onClick = { context.openUrl(releasesUrl) }) { Text(stringResource(R.string.check_updates)) }
+        // Checks GitHub, then downloads and installs a newer release (AppUpdater).
+        TextButton(onClick = onUpdate, enabled = !updating) { Text(stringResource(R.string.check_updates)) }
     }
 }
