@@ -182,5 +182,9 @@ private fun VersionFooter(coreVersion: String, updating: Boolean, onUpdate: () -
         }
         // Checks GitHub; a newer release shows the update card (AppUpdater).
         TextButton(onClick = onUpdate, enabled = !updating) { Text(stringResource(R.string.check_updates)) }
+        // The project's releases on GitHub: all versions and their notes.
+        val context = LocalContext.current
+        val projectUrl = stringResource(R.string.project_url)
+        TextButton(onClick = { context.openUrl(projectUrl) }) { Text(stringResource(R.string.open_project)) }
     }
 }

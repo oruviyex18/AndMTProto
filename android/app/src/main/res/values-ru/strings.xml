@@ -11,6 +11,7 @@
     <string name="stale_proxy_hint">В Telegram добавлено несколько прокси AndMTProto, или некоторые из них устарели. Удалите лишние прокси в Telegram (Настройки → Данные и память → Настройки прокси) и отключите «Автопереключение прокси». Затем перезапустите Telegram: до этого он продолжает проверять удалённые записи. Карточка исчезнет примерно через 10 минут после последнего отклонённого подключения.</string>
     <string name="core_version">Ядро прокси %1$s · приложение %2$s</string>
     <string name="check_updates">Обновить программу</string>
+    <string name="open_project">Открыть проект</string>
     <string name="copy_link">Копировать ссылку</string>
     <string name="link_copied">Ссылка скопирована</string>
     <string name="telegram_not_found">Telegram не установлен. Скопируйте ссылку.</string>
