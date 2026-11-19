@@ -103,15 +103,27 @@ internal fun StalledCard(onRestart: () -> Unit) {
     }
 }
 
-/** ProxyService turned "No TLS for CF" on by itself; says why until the user closes it. */
+/**
+ * "Choose automatically" found that Telegram answers through the CF proxy, but
+ * the network cuts every connection to it off after about 16 KB.
+ */
 @Composable
-internal fun NoSecureAutoCard(onDismiss: () -> Unit) {
+internal fun CfCutOffCard() {
     AttentionCard(
-        title = stringResource(R.string.card_no_secure_auto_title),
-        body = stringResource(R.string.card_no_secure_auto_body),
-    ) {
-        TextButton(onClick = onDismiss) { Text(stringResource(R.string.card_done)) }
-    }
+        title = stringResource(R.string.card_cf_cut_off_title),
+        body = stringResource(R.string.card_cf_cut_off_body),
+        container = MaterialTheme.colorScheme.errorContainer,
+        content = MaterialTheme.colorScheme.onErrorContainer,
+    )
+}
+
+/** "Choose automatically" found no way to reach the CF proxy on this network. */
+@Composable
+internal fun CfNothingWorksCard() {
+    AttentionCard(
+        title = stringResource(R.string.card_cf_none_title),
+        body = stringResource(R.string.card_cf_none_body),
+    )
 }
 
 /**

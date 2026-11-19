@@ -37,6 +37,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import io.github.oruviyex18.andmtproto.ProxySettings
 import io.github.oruviyex18.andmtproto.ProxyStatus
 import io.github.oruviyex18.andmtproto.R
 
@@ -140,6 +141,21 @@ internal fun StatusLine(status: ProxyStatus, address: String) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+/**
+ * "CF: TLS with the bypass · chosen automatically": how the core reaches the CF
+ * proxy now ([saved] is updated when "Choose automatically" switches).
+ */
+@Composable
+internal fun CfConnectionLine(saved: ProxySettings) {
+    if (!saved.cfproxy) return
+    val way = stringResource(cfTransportName(saved.cfTransport))
+    Text(
+        if (saved.cfAuto) stringResource(R.string.cf_line_auto, way) else stringResource(R.string.cf_line_fixed, way),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 /** Where connections went since start: straight to Telegram, or through Cloudflare. */

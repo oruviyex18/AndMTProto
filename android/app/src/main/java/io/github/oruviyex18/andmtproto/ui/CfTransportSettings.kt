@@ -1,5 +1,6 @@
 package io.github.oruviyex18.andmtproto.ui
 
+import android.text.format.DateFormat
 import androidx.annotation.StringRes
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -24,6 +25,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
@@ -31,6 +33,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import java.util.Date
 import io.github.oruviyex18.andmtproto.CfTransport
 import io.github.oruviyex18.andmtproto.ProxyCore
 import io.github.oruviyex18.andmtproto.ProxySettings
@@ -38,6 +42,8 @@ import io.github.oruviyex18.andmtproto.R
 import io.github.oruviyex18.andmtproto.TlsStrategies
 
 private data class Choice(@StringRes val title: Int, @StringRes val body: Int)
+
+private val AUTO_CHOICE = Choice(R.string.cf_transport_auto, R.string.cf_transport_auto_body)
 
 private val TRANSPORTS = listOf(
     CfTransport.BYPASS to Choice(R.string.cf_transport_bypass, R.string.cf_transport_bypass_body),
@@ -55,26 +61,75 @@ private val PRESET_CHOICES = listOf(
 )
 private val CUSTOM_CHOICE = Choice(R.string.tls_strategy_custom, R.string.tls_strategy_custom_body)
 
+/** The name of [t] as the settings list it. */
+@StringRes
+internal fun cfTransportName(t: CfTransport): Int = TRANSPORTS.first { it.first == t }.second.title
+
 /**
- * How the core connects to the CF proxy: TLS with the blocking bypass (default),
- * plain TLS or no TLS; with the bypass, which strategy, from presets or typed
+ * How the core connects to the CF proxy: "Choose automatically" (the default),
+ * or always TLS with the blocking bypass, plain TLS or no TLS; with the bypass
+ * (also when chosen automatically), which strategy, from presets or typed
  * ByeDPI-style.
  */
 @Composable
 internal fun CfTransportSettings(s: ProxySettings, edit: (ProxySettings.() -> ProxySettings) -> Unit) {
     Text(stringResource(R.string.cf_transport), style = MaterialTheme.typography.titleSmall)
     Column(Modifier.selectableGroup()) {
+        ChoiceRow(AUTO_CHOICE, selected = s.cfAuto, onSelect = { if (!s.cfAuto) edit { withCfAuto() } }) {
+            if (s.cfAuto && s.cfproxy) CfAutoStatus(s.cfTransport)
+        }
         TRANSPORTS.forEach { (transport, choice) ->
-            ChoiceRow(choice, selected = s.cfTransport == transport) { edit { withCfTransport(transport) } }
+            ChoiceRow(choice, selected = !s.cfAuto && s.cfTransport == transport, onSelect = { edit { withCfTransport(transport) } })
         }
     }
-    if (s.cfTransport == CfTransport.BYPASS) {
+    if (s.cfAuto || s.cfTransport == CfTransport.BYPASS) {
         StrategyPicker(s.tlsStrategy) { v -> edit { copy(tlsStrategy = v) } }
     }
 }
 
+/**
+ * Under "Choose automatically" while the proxy runs: "Now: TLS with the bypass",
+ * then the network and time of the last check, "Checking…" before it, or that no
+ * way worked.
+ */
 @Composable
-private fun ChoiceRow(choice: Choice, selected: Boolean, onSelect: () -> Unit) {
+private fun CfAutoStatus(current: CfTransport) {
+    val status by ProxyCore.state.collectAsStateWithLifecycle()
+    val check by ProxyCore.cfCheck.collectAsStateWithLifecycle()
+    if (!status.running) return
+    val c = check
+    val now = stringResource(R.string.cf_auto_now, stringResource(cfTransportName(c?.chosen ?: current)))
+    val detail = when {
+        c == null -> stringResource(R.string.cf_auto_checking)
+        else -> stringResource(
+            R.string.cf_auto_checked, c.networkLabel,
+            DateFormat.getTimeFormat(LocalContext.current).format(Date(c.atMillis)),
+        )
+    }
+    Column(Modifier.padding(top = 6.dp)) {
+        Text(
+            if (c != null && c.chosen == null) stringResource(R.string.cf_auto_none) else now,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (c != null && c.chosen == null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+        )
+        if (c?.cutOff == true) {
+            Text(
+                stringResource(R.string.cf_auto_cut_off),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun ChoiceRow(
+    choice: Choice,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    extra: @Composable () -> Unit = {},
+) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -90,6 +145,7 @@ private fun ChoiceRow(choice: Choice, selected: Boolean, onSelect: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            extra()
         }
     }
 }

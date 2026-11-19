@@ -36,11 +36,16 @@ internal fun buildText(incremental: String): String =
     incremental.replace(Regex("""\.([A-Za-z][A-Za-z0-9]*)$"""), " ($1)").replace(Regex("""\.(?=[A-Za-z])"""), " ")
 
 /** The settings that change how traffic goes, without domains or secrets. */
-internal fun settingsSummary(s: ProxySettings, noSecureAuto: Boolean): String {
-    val cf = if (!s.cfproxy) "off" else when (s.cfTransport) {
+internal fun settingsSummary(s: ProxySettings): String {
+    val now = when (s.cfTransport) {
         CfTransport.BYPASS -> "TLS with the bypass (${s.tlsStrategy})"
         CfTransport.TLS -> "plain TLS"
-        CfTransport.PLAIN -> "no TLS" + if (noSecureAuto) ", set automatically" else ", set by the user"
+        CfTransport.PLAIN -> "no TLS"
+    }
+    val cf = when {
+        !s.cfproxy -> "off"
+        s.cfAuto -> "auto (now $now)"
+        else -> "$now, set by the user"
     }
     fun count(enabled: Boolean, list: String): String {
         val n = list.split(',', '\n', ' ').count { it.isNotBlank() }

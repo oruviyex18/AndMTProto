@@ -1,6 +1,7 @@
 package io.github.oruviyex18.andmtproto
 
 import android.content.Context
+import android.net.Network
 import android.util.Log
 import com.chaquo.python.Python
 import kotlinx.coroutines.CoroutineDispatcher
@@ -80,6 +81,28 @@ object ProxyCore {
         _stalled.value = value
     }
 
+    /**
+     * The last "Choose automatically" check of the CF connection: on which network
+     * ([networkLabel], e.g. "Wi-Fi"), when (System.currentTimeMillis) and the way it
+     * picked; [chosen] is null when no way worked. [cutOff]: Telegram answers, but
+     * the network cuts every way off after about 16 KB, so [chosen] barely works.
+     * Set by ProxyService.
+     */
+    data class CfCheck(
+        val network: Network?,
+        val networkLabel: String,
+        val atMillis: Long,
+        val chosen: CfTransport?,
+        val cutOff: Boolean = false,
+    )
+
+    private val _cfCheck = MutableStateFlow<CfCheck?>(null)
+    val cfCheck: StateFlow<CfCheck?> = _cfCheck.asStateFlow()
+
+    fun setCfCheck(value: CfCheck?) {
+        _cfCheck.value = value
+    }
+
     /** Writes [message] to the proxy log (dropped before the first start sets the log up). */
     fun note(message: String) {
         scope.launch {
@@ -108,14 +131,27 @@ object ProxyCore {
     }
 
     /**
-     * Whether the CF proxy opens over plain TLS, over TLS with the bypass strategy,
-     * and without TLS; null if CF is off or the probe failed.
+     * Whether Telegram answers through the CF proxy over plain TLS, over TLS with
+     * the bypass strategy, and without TLS; the *Full ones whether more than 24 KB
+     * also got through one connection each way (some ISPs freeze connections to
+     * Cloudflare after about 16 KB). Null if CF is off or the probe failed.
      */
-    data class CfProbe(val tls: Boolean, val bypass: Boolean, val plain: Boolean) {
+    data class CfProbe(
+        val tls: Boolean, val bypass: Boolean, val plain: Boolean,
+        val tlsFull: Boolean = tls, val bypassFull: Boolean = bypass, val plainFull: Boolean = plain,
+    ) {
+        /** The small check passed: Telegram answers. */
         fun works(t: CfTransport) = when (t) {
             CfTransport.BYPASS -> bypass
             CfTransport.TLS -> tls
             CfTransport.PLAIN -> plain
+        }
+
+        /** The large check passed too: more than a few KB get through. */
+        fun worksFully(t: CfTransport) = works(t) && when (t) {
+            CfTransport.BYPASS -> bypassFull
+            CfTransport.TLS -> tlsFull
+            CfTransport.PLAIN -> plainFull
         }
     }
 
@@ -123,7 +159,18 @@ object ProxyCore {
     suspend fun probeCf(): CfProbe? = withContext(Dispatchers.IO) {
         try {
             val o = JSONObject(module.callAttr("probe_cf").toString())
-            if (o.has("tls")) CfProbe(o.getBoolean("tls"), o.getBoolean("bypass"), o.getBoolean("plain")) else null
+            if (o.has("tls")) {
+                val tls = o.getBoolean("tls")
+                val bypass = o.getBoolean("bypass")
+                val plain = o.getBoolean("plain")
+                CfProbe(
+                    tls, bypass, plain,
+                    o.optBoolean("tls_full", tls), o.optBoolean("bypass_full", bypass),
+                    o.optBoolean("plain_full", plain),
+                )
+            } else {
+                null
+            }
         } catch (e: Exception) {
             Log.w(TAG, "CF probe failed", e)
             null

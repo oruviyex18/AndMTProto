@@ -68,7 +68,8 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
     val update by vm.update.collectAsStateWithLifecycle()
     val updater by vm.updater.collectAsStateWithLifecycle()
     val stalled by ProxyCore.stalled.collectAsStateWithLifecycle()
-    val noSecureAuto by vm.noSecureAuto.collectAsStateWithLifecycle()
+    val cfCheck by ProxyCore.cfCheck.collectAsStateWithLifecycle()
+    val saved by vm.saved.collectAsStateWithLifecycle()
     val miuiBackgroundDone by vm.miuiBackgroundDone.collectAsStateWithLifecycle()
     val miuiAutostartDone by vm.miuiAutostartDone.collectAsStateWithLifecycle()
     val startProxy = rememberProxyStarter()
@@ -99,6 +100,7 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
                 onClick = { if (status.running) ProxyService.stop(context) else startProxy() },
             )
             StatusLine(status, vm.savedAddress())
+            if (status.state == ProxyState.RUNNING) CfConnectionLine(saved)
             if (status.state == ProxyState.RUNNING) {
                 RouteChips(status)
                 StatTiles(status)
@@ -112,7 +114,11 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
             if (status.state == ProxyState.RUNNING && stalled) {
                 StalledCard(onRestart = { ProxyService.start(context, restart = true) })
             }
-            if (noSecureAuto) NoSecureAutoCard(onDismiss = vm::dismissNoSecureAuto)
+            if (status.state == ProxyState.RUNNING && saved.cfproxy && saved.cfAuto) {
+                cfCheck?.let { check ->
+                    if (check.chosen == null) CfNothingWorksCard() else if (check.cutOff) CfCutOffCard()
+                }
+            }
             if (status.state == ProxyState.RUNNING) {
                 TelegramCard(
                     linked = linked,

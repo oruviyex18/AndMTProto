@@ -36,6 +36,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val draft: StateFlow<SettingsDraft> = _draft.asStateFlow()
     val status: StateFlow<ProxyStatus> = ProxyCore.state
 
+    /** The saved settings: what the proxy runs with, including the CF connection it uses now. */
+    val saved: StateFlow<ProxySettings> = _saved.asStateFlow()
+
     /**
      * Telegram has used the proxy with the current port and secret. Remembered
      * across restarts; a new port or secret needs a new link, so it starts over.
@@ -50,14 +53,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val miuiBackgroundDone: StateFlow<Boolean> = backgroundDone.state
     val miuiAutostartDone: StateFlow<Boolean> = autostartDone.state
 
-    private val _noSecureAuto = MutableStateFlow(store.noSecureAuto)
-
-    /** ProxyService turned "No TLS for CF" on by itself (see SettingsStore.noSecureAuto). */
-    val noSecureAuto: StateFlow<Boolean> = _noSecureAuto.asStateFlow()
-
     /** ProxyService may move the port on the first start (see SettingsStore.autoPort). */
     private val settingsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
-        _noSecureAuto.value = store.noSecureAuto
         val saved = store.load()
         if (saved == _saved.value) return@OnSharedPreferenceChangeListener
         val untouched = _draft.value == SettingsDraft(_saved.value)
@@ -89,16 +86,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Saves the draft if it changed and restarts a running proxy with it. */
     fun save(): SaveResult {
-        val settings = when (val parsed = _draft.value.parse()) {
+        var settings = when (val parsed = _draft.value.parse()) {
             is SettingsDraft.Parsed.NotANumber -> return SaveResult.Invalid(parsed.field)
             is SettingsDraft.Parsed.Valid -> parsed.settings
+        }
+        if (settings.cfAuto && _saved.value.cfAuto) {
+            // "Choose automatically" stays on: keep the way ProxyService picked meanwhile.
+            settings = settings.withCurrentCfTransport(_saved.value.cfTransport)
         }
         if (settings == _saved.value) return SaveResult.Unchanged
         if (settings.tlsBypass && settings.tlsStrategy != _saved.value.tlsStrategy) {
             ProxyCore.badTlsStrategyPart(settings.tlsStrategy)?.let { return SaveResult.BadStrategy(it) }
         }
         if (settings.port != _saved.value.port) store.autoPort = false // the user's choice
-        if (settings.cfTransport != _saved.value.cfTransport) store.noSecureAuto = false // ditto
         persist(settings)
         _draft.value = SettingsDraft(settings)
         val restart = status.value.running
@@ -146,11 +146,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun dismissUpdate() {
         _update.value?.let { UpdateCheck.dismiss(getApplication(), it.version) }
         _update.value = null
-    }
-
-    fun dismissNoSecureAuto() {
-        store.noSecureAuto = false
-        _noSecureAuto.value = false
     }
 
     fun markMiuiBackgroundDone() = backgroundDone.set()

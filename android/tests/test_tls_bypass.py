@@ -242,6 +242,10 @@ def _start_auto(monkeypatch, **cfg):
     android_entry._apply_config(android_entry._merged(json.dumps(base)))
     monkeypatch.setattr(android_entry.balancer, "domains", ["a.example", "b.example"])
 
+    async def download(domain, secure, timeout, bypass=False, port=None):
+        return 40_000  # the large check passes unless a test says otherwise
+    monkeypatch.setattr(android_entry, "_download_size", download)
+
 
 def test_automatic_is_the_default_and_starts_with_the_usual_strategy(monkeypatch):
     _start_auto(monkeypatch)
@@ -282,14 +286,22 @@ def test_auto_pick_leaves_a_fixed_strategy_alone(monkeypatch):
 
 def test_probe_cf_with_automatic_strategy_reports_and_switches(monkeypatch):
     _start_auto(monkeypatch)
+
+    async def download(domain, secure, timeout, bypass=False, port=None):
+        return 40_000
+    monkeypatch.setattr(android_entry, "_download_size", download)
     monkeypatch.setattr(android_entry.RawWebSocket, "connect",
                         _connect_opening(lambda w: w in ("--sni-parent", "plain")))
-    assert json.loads(android_entry.probe_cf()) == {"tls": False, "bypass": True, "plain": True}
+    assert json.loads(android_entry.probe_cf()) == {
+        "tls": False, "bypass": True, "plain": True,
+        "tls_full": False, "bypass_full": True, "plain_full": True}
     assert tls_bypass.active().text == "--sni-parent"
     # Only plain TLS: "bypass" is false (nothing needed reshaping), "tls" true.
     monkeypatch.setattr(android_entry.RawWebSocket, "connect",
                         _connect_opening(lambda w: w == "tls"))
-    assert json.loads(android_entry.probe_cf()) == {"tls": True, "bypass": False, "plain": False}
+    assert json.loads(android_entry.probe_cf()) == {
+        "tls": True, "bypass": False, "plain": False,
+        "tls_full": True, "bypass_full": False, "plain_full": False}
     assert tls_bypass.active() is None
 
 
@@ -308,3 +320,37 @@ def test_outgoing_tls_closes_without_waiting_30s():
     client, server = asyncio.run(run())
     assert client == tls_bypass.SSL_SHUTDOWN_TIMEOUT_S
     assert server != tls_bypass.SSL_SHUTDOWN_TIMEOUT_S  # the listener is left alone
+
+
+def test_probe_cf_moves_to_a_strategy_the_network_does_not_cut_off(monkeypatch):
+    """An MTS Wi-Fi, 19 Nov 2026: over the TLS split every connection to the CF
+    proxy froze at about 12 KB, while port 80 carried more. The automatic
+    strategy then tries the others and keeps one that carries large data."""
+    _start_auto(monkeypatch)
+    monkeypatch.setattr(android_entry.RawWebSocket, "connect", _connect_opening(lambda w: True))
+
+    async def download(domain, secure, timeout, bypass=False, port=None):
+        full = not secure or (bypass and bypass.text == "--sni-parent")
+        return 40_000 if full else 12_000
+    monkeypatch.setattr(android_entry, "_download_size", download)
+    assert json.loads(android_entry.probe_cf()) == {
+        "tls": True, "bypass": True, "plain": True,
+        "tls_full": False, "bypass_full": True, "plain_full": True}
+    assert tls_bypass.active().text == "--sni-parent"
+    # Nothing over TLS carries large data: the first strategy that answers stays.
+    monkeypatch.setattr(android_entry, "_download_size",
+                        lambda *a, **k: asyncio.sleep(0, 40_000 if not a[1] else 12_000))
+    assert json.loads(android_entry.probe_cf())["bypass_full"] is False
+    assert tls_bypass.active().text == tls_bypass.DEFAULT_STRATEGY
+
+
+def test_auto_pick_at_start_skips_a_strategy_the_network_cuts_off(monkeypatch):
+    """The core's own pick at start uses the large check too, so a restart
+    doesn't go back to the TLS split the network freezes."""
+    _start_auto(monkeypatch)
+    monkeypatch.setattr(android_entry.RawWebSocket, "connect", _connect_opening(lambda w: True))
+    monkeypatch.setattr(android_entry, "_download_size",
+                        lambda d, secure, t, bypass=False, port=None: asyncio.sleep(
+                            0, 40_000 if bypass and bypass.text == "--oob 0+sm" else 12_000))
+    asyncio.run(android_entry._auto_pick())
+    assert tls_bypass.active().text == "--oob 0+sm"
