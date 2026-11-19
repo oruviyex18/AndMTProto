@@ -103,15 +103,13 @@ internal fun StalledCard(onRestart: () -> Unit) {
     }
 }
 
-/** ProxyService turned "No TLS for CF" on by itself; says why until the user closes it. */
+/** "Choose automatically" found no way to reach the CF proxy on this network. */
 @Composable
-internal fun NoSecureAutoCard(onDismiss: () -> Unit) {
+internal fun CfNothingWorksCard() {
     AttentionCard(
-        title = stringResource(R.string.card_no_secure_auto_title),
-        body = stringResource(R.string.card_no_secure_auto_body),
-    ) {
-        TextButton(onClick = onDismiss) { Text(stringResource(R.string.card_done)) }
-    }
+        title = stringResource(R.string.card_cf_none_title),
+        body = stringResource(R.string.card_cf_none_body),
+    )
 }
 
 /**

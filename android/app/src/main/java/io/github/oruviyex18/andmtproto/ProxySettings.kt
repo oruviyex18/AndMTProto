@@ -39,6 +39,13 @@ data class ProxySettings(
     val fakeTlsDomain: String = "",
     val forceTestDc: Boolean = false,
     val noSecure: Boolean = false,
+    /**
+     * Android-only: "Choose automatically" for the CF connection (the default).
+     * ProxyService then checks the ways to reach the CF proxy and keeps the first
+     * that works in [noSecure] and [tlsBypass]; off, those two are the user's choice
+     * and never change by themselves.
+     */
+    val cfAuto: Boolean = true,
     /** Android-only: TLS-blocking bypass for the CF proxy (tls_bypass.py); on by default. */
     val tlsBypass: Boolean = true,
     /** Android-only: the bypass strategy, ByeDPI-style or "auto" ([TlsStrategies]). */
@@ -49,7 +56,7 @@ data class ProxySettings(
     /** Android-only: the daily [UpdateCheck]. */
     val checkUpdates: Boolean = true,
 ) {
-    /** How the core connects to the CF proxy, from [noSecure] and [tlsBypass]. */
+    /** How the core connects to the CF proxy now, from [noSecure] and [tlsBypass]; see [cfAuto]. */
     val cfTransport: CfTransport
         get() = when {
             noSecure -> CfTransport.PLAIN
@@ -57,7 +64,14 @@ data class ProxySettings(
             else -> CfTransport.TLS
         }
 
-    fun withCfTransport(t: CfTransport): ProxySettings = when (t) {
+    /** The user picks [t] for good: no automatic switching. */
+    fun withCfTransport(t: CfTransport): ProxySettings = withCurrentCfTransport(t).copy(cfAuto = false)
+
+    /** "Choose automatically", starting from the bypass until a check picks another way. */
+    fun withCfAuto(): ProxySettings = withCurrentCfTransport(CfTransport.BYPASS).copy(cfAuto = true)
+
+    /** Uses [t] now, keeping [cfAuto]: what ProxyService does when its check picks [t]. */
+    fun withCurrentCfTransport(t: CfTransport): ProxySettings = when (t) {
         CfTransport.BYPASS -> copy(noSecure = false, tlsBypass = true)
         CfTransport.TLS -> copy(noSecure = false, tlsBypass = false)
         CfTransport.PLAIN -> copy(noSecure = true) // the bypass choice is kept for later
@@ -81,6 +95,7 @@ data class ProxySettings(
         .put("no_secure", noSecure)
         .put("tls_bypass", tlsBypass)
         .put("tls_strategy", tlsStrategy)
+        .put("cf_auto", cfAuto)
         .put("verbose", verbose)
         .put("start_on_boot", startOnBoot)
         .put("check_updates", checkUpdates)
@@ -107,6 +122,10 @@ data class ProxySettings(
                 noSecure = o.optBoolean("no_secure", d.noSecure),
                 tlsBypass = o.optBoolean("tls_bypass", d.tlsBypass),
                 tlsStrategy = o.optString("tls_strategy", d.tlsStrategy),
+                // Before "Choose automatically" existed, the bypass (the default) already
+                // switched by itself, so it becomes automatic; a choice of plain TLS or no
+                // TLS stays (SettingsStore.load also moves a "no TLS" it set itself).
+                cfAuto = o.optBoolean("cf_auto", !o.optBoolean("no_secure", false) && o.optBoolean("tls_bypass", true)),
                 verbose = o.optBoolean("verbose", d.verbose),
                 startOnBoot = o.optBoolean("start_on_boot", d.startOnBoot),
                 checkUpdates = o.optBoolean("check_updates", d.checkUpdates),
@@ -122,7 +141,7 @@ data class ProxySettings(
 
 /** How the core connects to the CF proxy and CF workers. */
 enum class CfTransport {
-    /** TLS with the ClientHello reshaped so DPI can't read the name in it (the default). */
+    /** TLS with the ClientHello reshaped so DPI can't read the name in it; tried first. */
     BYPASS,
     /** Plain TLS, as upstream does. */
     TLS,
@@ -149,16 +168,24 @@ object TlsStrategies {
     val PRESETS = listOf(AUTO, SPLIT, RECORDS_OOB, OOB, PARENT_SNI)
 }
 
+/** "Choose automatically" tries the CF connections in this order and keeps the first that works. */
+val CF_AUTO_ORDER = listOf(CfTransport.BYPASS, CfTransport.TLS, CfTransport.PLAIN)
+
 class SettingsStore(context: Context) {
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
     fun load(): ProxySettings {
-        val stored = prefs.getString(KEY, null)?.let {
-            runCatching { ProxySettings.fromJson(JSONObject(it)) }.getOrNull()
-        }
+        val json = prefs.getString(KEY, null)?.let { runCatching { JSONObject(it) }.getOrNull() }
+        val stored = json?.let { runCatching { ProxySettings.fromJson(it) }.getOrNull() }
         if (stored == null) autoPort = true // fresh install: the default port may be taken
-        val settings = stored ?: ProxySettings()
+        var settings = stored ?: ProxySettings()
+        if (json != null && !json.has("cf_auto") && prefs.getBoolean(KEY_NO_SECURE_AUTO, false)) {
+            // Up to 1.11.4-android.10, "no TLS" that ProxyService set by itself; now "automatic".
+            settings = settings.copy(cfAuto = true)
+            prefs.edit { remove(KEY_NO_SECURE_AUTO) }
+            save(settings)
+        }
         if (settings.secret.isNotBlank()) return settings
         return settings.copy(secret = ProxySettings.newSecret()).also(::save)
     }
@@ -184,18 +211,10 @@ class SettingsStore(context: Context) {
         get() = prefs.getBoolean(KEY_AUTO_PORT, false)
         set(value) = prefs.edit { putBoolean(KEY_AUTO_PORT, value) }
 
-    /**
-     * ProxyService turned [ProxySettings.noSecure] on by itself because the network
-     * blocks the CF proxy over TLS, even with the bypass; the main screen says so
-     * until dismissed. Cleared when the user picks the CF connection themselves.
-     */
-    var noSecureAuto: Boolean
-        get() = prefs.getBoolean(KEY_NO_SECURE_AUTO, false)
-        set(value) = prefs.edit { putBoolean(KEY_NO_SECURE_AUTO, value) }
-
     private companion object {
         const val KEY = "config"
         const val KEY_AUTO_PORT = "auto_port"
+        /** Up to 1.11.4-android.10: ProxyService had turned "no TLS" on by itself. Read once in [load]. */
         const val KEY_NO_SECURE_AUTO = "no_secure_auto"
     }
 }

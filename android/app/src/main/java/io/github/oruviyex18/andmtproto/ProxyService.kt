@@ -41,11 +41,11 @@ class ProxyService : Service() {
     private var coreNetwork: Network? = null
     private var lostSinceStart = false
 
-    /** The network the CF transport was last checked on (see [switchCfTransport]). */
-    private var probedOn: Network? = null
+    /** The network "Choose automatically" last checked once the core listened (see [checkCf]). */
+    private var startCheckedOn: Network? = null
 
-    /** The network [backToTls] last checked. */
-    private var upgradeProbedOn: Network? = null
+    /** The network it last checked because nothing got through (see [watchStall]). */
+    private var stallCheckedOn: Network? = null
 
     /** When the watchdog last restarted the core (elapsedRealtime); at most once per cooldown. */
     private var autoRestartAt = NEVER
@@ -87,6 +87,9 @@ class ProxyService : Service() {
             return START_NOT_STICKY
         }
         val restart = intent?.action == ACTION_RESTART
+        // A start or a restart by the user (e.g. new settings) checks the CF connection again.
+        startCheckedOn = null
+        stallCheckedOn = null
         // One session at a time: a restart replaces the running poll loop.
         session?.cancel()
         if (restart) ProxyCore.setStalled(false) // the user asked; the card returns only if still stuck
@@ -101,6 +104,7 @@ class ProxyService : Service() {
             Log.w(TAG, "Cannot stop following network changes", e)
         }
         scope.cancel()
+        ProxyCore.setCfCheck(null)
         ProxyCore.stopInBackground()
         super.onDestroy()
     }
@@ -114,13 +118,13 @@ class ProxyService : Service() {
         coreNetwork = network ?: connectivity.activeNetwork
         lostSinceStart = false
         ProxyCore.note(deviceSummary())
-        ProxyCore.note(settingsSummary(current, SettingsStore(this).noSecureAuto))
+        ProxyCore.note(settingsSummary(current))
         ProxyCore.note("Network: ${describeNetwork(coreNetwork)}")
         ProxyCore.note(networkDetails(coreNetwork))
         delay(STARTUP_POLL_MS)
         var shown: ProxyStatus? = null
         var listened = false
-        var checkTls = false
+        var checkCfNow = false
         val stalls = StallDetector()
         while (true) {
             val status = ProxyCore.poll()
@@ -140,16 +144,22 @@ class ProxyService : Service() {
             if (status.listening && !listened) {
                 listened = true
                 SettingsStore(this).autoPort = false // the port works; never change it again
-                checkTls = true
+                checkCfNow = true
             }
             if (status.listening && watchStall(stalls, status)) return
             if (status.active != shown?.active || status.listening != shown.listening) {
                 notify(buildNotification(status))
                 shown = status
             }
-            if (checkTls) {
-                checkTls = false
-                if (backToTls()) return // after the notification: the check takes seconds
+            if (checkCfNow) {
+                checkCfNow = false
+                // After the notification: the check takes seconds. Once per network, so a
+                // restart it causes doesn't check again.
+                val on = network ?: connectivity.activeNetwork
+                if (on != null && on != startCheckedOn) {
+                    startCheckedOn = on
+                    if (checkCf(on)) return
+                }
             }
             delay(POLL_MS)
         }
@@ -157,8 +167,8 @@ class ProxyService : Service() {
 
     /**
      * When nothing has got through for a minute although Telegram keeps trying,
-     * first checks whether only the CF proxy's TLS is blocked ([switchCfTransport]),
-     * then restarts the core once (fresh pools, DNS and CF domain choice); if that
+     * first lets "Choose automatically" check the CF connection again ([checkCf],
+     * once per network: blocking can start mid-session), then restarts the core once (fresh pools, DNS and CF domain choice); if that
      * doesn't help either, tells the UI. Returns true when this session was replaced.
      */
     private suspend fun watchStall(stalls: StallDetector, status: ProxyStatus): Boolean {
@@ -166,7 +176,11 @@ class ProxyService : Service() {
         val stuck = stalls.update(status, now)
         if (stalls.progressed && ProxyCore.stalled.value) ProxyCore.setStalled(false)
         if (!stuck) return false
-        if (switchCfTransport()) return true
+        val on = network ?: connectivity.activeNetwork
+        if (on != null && on != stallCheckedOn) {
+            stallCheckedOn = on
+            if (checkCf(on)) return true
+        }
         if (now - autoRestartAt >= AUTO_RESTART_COOLDOWN_MS) {
             autoRestartAt = now
             ProxyCore.note(
@@ -183,55 +197,37 @@ class ProxyService : Service() {
     }
 
     /**
-     * On 16 Nov 2026 Russian DPI began cutting TLS to the shared CF proxy domains by
-     * name. The TLS bypass (the default) gets past that, and plain HTTP (port 80) did
-     * too. When nothing gets through although the network is fine, checks all three
-     * once per network and moves to the first one that works: the bypass, else no
-     * TLS. A connection mode the user picked themselves is left alone, except
-     * "no TLS" set by this check. Returns true when this session was replaced.
+     * "Choose automatically" for the CF connection: checks TLS with the bypass,
+     * plain TLS and no TLS on [on] and moves to the first that works, in
+     * [CF_AUTO_ORDER]. Since 16 Nov 2026 Russian DPI cuts TLS to the shared CF proxy
+     * domains by name; the bypass usually gets past that, and plain TLS covers
+     * networks that break its split packets. A way the user picked themselves is
+     * never changed. Returns true when this session was replaced.
      */
-    private suspend fun switchCfTransport(): Boolean {
-        val store = SettingsStore(this)
-        val current = network ?: connectivity.activeNetwork
-        if (!settings.cfproxy || current == null || current == probedOn) return false
-        val mode = settings.cfTransport
-        if (mode == CfTransport.TLS || (mode == CfTransport.PLAIN && !store.noSecureAuto)) {
-            return false // the user's own choice
-        }
-        probedOn = current
+    private suspend fun checkCf(on: Network): Boolean {
+        if (!settings.cfproxy || !settings.cfAuto) return false
         val probe = ProxyCore.probeCf() ?: return false
-        noteProbe(current, probe)
-        if (probe.works(mode)) return false
-        val target = listOf(CfTransport.BYPASS, CfTransport.PLAIN).firstOrNull { probe.works(it) } ?: return false
-        ProxyCore.note(
-            if (target == CfTransport.PLAIN) {
-                "Turning on \"No TLS for CF\": this network blocks the CF proxy over TLS, even with the bypass"
-            } else {
-                "Turning \"No TLS for CF\" back off: TLS with the bypass works on this network"
-            }
+        noteProbe(on, probe)
+        val target = CF_AUTO_ORDER.firstOrNull { probe.works(it) }
+        ProxyCore.setCfCheck(
+            ProxyCore.CfCheck(on, describeNetwork(on), System.currentTimeMillis(), target)
         )
-        switchTo(store, target)
+        if (target == null) {
+            ProxyCore.note("No way to reach the CF proxy works on ${describeNetwork(on)}; keeping ${label(settings.cfTransport)}")
+            return false
+        }
+        if (target == settings.cfTransport) return false
+        ProxyCore.note("Choosing the CF connection automatically: ${label(target)} (was ${label(settings.cfTransport)})")
+        settings = settings.withCurrentCfTransport(target)
+        SettingsStore(this).save(settings)
+        restartSession()
         return true
     }
 
-    /**
-     * Once the core listens with "no TLS" that [switchCfTransport] turned on, checks
-     * once per network whether TLS with the bypass works, and goes back to it: port
-     * 80 can be blocked any time, and TLS hides more from the network. Returns true
-     * when this session was replaced.
-     */
-    private suspend fun backToTls(): Boolean {
-        val store = SettingsStore(this)
-        val current = network ?: connectivity.activeNetwork
-        if (!settings.cfproxy || current == null || current == upgradeProbedOn) return false
-        if (settings.cfTransport != CfTransport.PLAIN || !store.noSecureAuto || !settings.tlsBypass) return false
-        upgradeProbedOn = current
-        val probe = ProxyCore.probeCf() ?: return false
-        noteProbe(current, probe)
-        if (!probe.bypass) return false
-        ProxyCore.note("Turning \"No TLS for CF\" back off: TLS with the bypass works on this network")
-        switchTo(store, CfTransport.BYPASS)
-        return true
+    private fun label(t: CfTransport) = when (t) {
+        CfTransport.BYPASS -> "TLS with the bypass"
+        CfTransport.TLS -> "plain TLS"
+        CfTransport.PLAIN -> "no TLS"
     }
 
     private fun noteProbe(on: Network, probe: ProxyCore.CfProbe) {
@@ -240,13 +236,6 @@ class ProxyService : Service() {
             "CF proxy check over ${describeNetwork(on)}: TLS ${word(probe.tls)}, " +
                 "TLS with the bypass ${word(probe.bypass)}, without TLS ${word(probe.plain)}"
         )
-    }
-
-    private fun switchTo(store: SettingsStore, target: CfTransport) {
-        settings = settings.withCfTransport(target)
-        store.save(settings)
-        store.noSecureAuto = target == CfTransport.PLAIN
-        restartSession()
     }
 
     /** Replaces the running session with a fresh core; safe to call from that session. */

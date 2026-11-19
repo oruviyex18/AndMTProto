@@ -1,6 +1,7 @@
 package io.github.oruviyex18.andmtproto
 
 import android.content.Context
+import android.net.Network
 import android.util.Log
 import com.chaquo.python.Python
 import kotlinx.coroutines.CoroutineDispatcher
@@ -78,6 +79,20 @@ object ProxyCore {
 
     fun setStalled(value: Boolean) {
         _stalled.value = value
+    }
+
+    /**
+     * The last "Choose automatically" check of the CF connection: on which network
+     * ([networkLabel], e.g. "Wi-Fi"), when (System.currentTimeMillis) and the way it
+     * picked; [chosen] is null when no way worked. Set by ProxyService.
+     */
+    data class CfCheck(val network: Network?, val networkLabel: String, val atMillis: Long, val chosen: CfTransport?)
+
+    private val _cfCheck = MutableStateFlow<CfCheck?>(null)
+    val cfCheck: StateFlow<CfCheck?> = _cfCheck.asStateFlow()
+
+    fun setCfCheck(value: CfCheck?) {
+        _cfCheck.value = value
     }
 
     /** Writes [message] to the proxy log (dropped before the first start sets the log up). */
