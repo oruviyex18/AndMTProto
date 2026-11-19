@@ -42,6 +42,39 @@ internal class StallDetector(
 }
 
 /**
+ * Notices when connections to the CF proxy keep failing although other traffic
+ * flows, which [StallDetector] can't see. On an MTS Wi-Fi on 19 Nov 2026 the
+ * bypass stopped getting through mid-session: over an hour, ~2300 CF hosts didn't
+ * open while 20 did, so photos from DC1 and the CDN never loaded, while DC2 and DC4
+ * worked over direct WebSockets. Within [windowMs]: at least [minFailed] failures
+ * and [ratio] times as many as CF connections that opened.
+ */
+internal class CfFailureDetector(
+    private val windowMs: Long = 120_000,
+    private val minFailed: Int = 20,
+    private val ratio: Int = 10,
+) {
+    private val samples = ArrayDeque<Triple<Long, Int, Int>>() // (time, cfOk, cfFailed)
+
+    /** The failures and openings in the window, from the last [update]. */
+    var failed = 0
+        private set
+    var opened = 0
+        private set
+
+    /** Feeds one status sample taken at [now] (ms); true while CF keeps failing. */
+    fun update(status: ProxyStatus, now: Long): Boolean {
+        samples.addLast(Triple(now, status.cfOk, status.cfFailed))
+        // Keep the newest sample that is at least the window old as the baseline.
+        while (samples.size > 1 && now - samples[1].first >= windowMs) samples.removeFirst()
+        val (_, ok, failedThen) = samples.first()
+        failed = status.cfFailed - failedThen
+        opened = status.cfOk - ok
+        return failed >= minFailed && failed >= ratio * opened
+    }
+}
+
+/**
  * "Wi-Fi", "mobile data (Beeline)", … for the log, from the network's transports.
  * Blocking differs by provider, so mobile data names its carrier; that needs no
  * permission. A Wi-Fi network's name would need the location permission, so it is left out.

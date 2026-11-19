@@ -49,6 +49,9 @@ data class ProxyStatus(
     val routed: Int = 0,
     val bytesUp: Long = 0,
     val bytesDown: Long = 0,
+    /** CF proxy WebSockets that opened since start, and hosts that didn't open one. */
+    val cfOk: Int = 0,
+    val cfFailed: Int = 0,
 )
 
 /**
@@ -266,6 +269,8 @@ object ProxyCore {
             routed = o.getInt("routed"),
             bytesUp = o.getLong("bytes_up"),
             bytesDown = o.getLong("bytes_down"),
+            cfOk = o.optInt("cf_ok"),
+            cfFailed = o.optInt("cf_failed"),
         ).also { _state.value = it }
     }
 }

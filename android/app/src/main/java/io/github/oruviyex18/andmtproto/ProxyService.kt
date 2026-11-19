@@ -53,6 +53,9 @@ class ProxyService : Service() {
     /** The next core start checks the TLS strategies afresh ([ProxyCore.forgetCfPick]). */
     private var freshPickNext = true
 
+    /** When CF connections failing started the last check ([watchCfFailures]; elapsedRealtime). */
+    private var cfFailureCheckAt = NEVER
+
     /** The log already says why the watchdog doesn't restart on a network that cuts Cloudflare off. */
     private var cutOffNoted = false
 
@@ -100,6 +103,7 @@ class ProxyService : Service() {
         startCheckedOn = null
         stallCheckedOn = null
         freshPickNext = true
+        cfFailureCheckAt = NEVER
         cfCheckJob?.cancel()
         // One session at a time: a restart replaces the running poll loop.
         session?.cancel()
@@ -142,6 +146,7 @@ class ProxyService : Service() {
         var listened = false
         var checkCfNow = false
         val stalls = StallDetector()
+        val cfFailures = CfFailureDetector()
         while (true) {
             val status = ProxyCore.poll()
             if (!status.running) {
@@ -163,6 +168,7 @@ class ProxyService : Service() {
                 checkCfNow = true
             }
             if (status.listening && watchStall(stalls, status)) return
+            if (status.listening) watchCfFailures(cfFailures, status)
             if (status.active != shown?.active || status.listening != shown.listening) {
                 notify(buildNotification(status))
                 shown = status
@@ -221,6 +227,26 @@ class ProxyService : Service() {
             ProxyCore.setStalled(true)
         }
         return false
+    }
+
+    /**
+     * When most connections to the CF proxy fail although other traffic flows (so
+     * [watchStall] sees no stall), checks the CF connection again: the way in use may
+     * have stopped working mid-session. At most once per [CF_FAILURE_RECHECK_MS], and
+     * again on a new network.
+     */
+    private fun watchCfFailures(cfFailures: CfFailureDetector, status: ProxyStatus) {
+        val now = SystemClock.elapsedRealtime()
+        if (!cfFailures.update(status, now)) return
+        if (!settings.cfproxy || !settings.cfAuto || cfCheckJob?.isActive == true) return
+        if (now - cfFailureCheckAt < CF_FAILURE_RECHECK_MS) return
+        val on = network ?: connectivity.activeNetwork ?: return
+        cfFailureCheckAt = now
+        ProxyCore.note(
+            "Connections to the CF proxy keep failing (${cfFailures.failed} failed, " +
+                "${cfFailures.opened} opened in 2 minutes) over ${label(settings.cfTransport)}; checking the CF connection again"
+        )
+        launchCheckCf(on, fresh = true)
     }
 
     /**
@@ -328,6 +354,7 @@ class ProxyService : Service() {
             }
             ProxyCore.note("Restarting the proxy core on ${describeNetwork(now)}")
             autoRestartAt = NEVER // a new network gets its own watchdog restart
+            cfFailureCheckAt = NEVER
             freshPickNext = true
             restartSession()
         }
@@ -414,6 +441,7 @@ class ProxyService : Service() {
         private const val NETWORK_BACK_SETTLE_MS = 3_000L
         private const val NETWORK_SWITCH_SETTLE_MS = 15_000L
         private const val AUTO_RESTART_COOLDOWN_MS = 10 * 60_000L
+        private const val CF_FAILURE_RECHECK_MS = 10 * 60_000L
         private const val NEVER = Long.MIN_VALUE / 2
         private const val ACTION_START = "start"
         private const val ACTION_RESTART = "restart"

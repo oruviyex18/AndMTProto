@@ -387,6 +387,29 @@ def test_status_counts_rejected_handshakes(tmp_path):
         android_entry.stop()
 
 
+
+def test_status_counts_cf_proxy_failures(tmp_path):
+    """cf_failed counts the core's "CF proxy failed" warnings (one per host that
+    didn't open), from zero at each start; cf_ok its CF connections that opened."""
+    import logging
+    core_log = logging.getLogger("tg-mtproto-proxy")
+    try:
+        assert android_entry.start(_cfg(), str(tmp_path)) is None
+        assert _wait(lambda: json.loads(android_entry.status())["listening"])
+        for _ in range(3):
+            core_log.warning("[%s] DC%d%s CF proxy failed: %r (host=%s port=%d)",
+                             "x", 1, "", TimeoutError(), "kws1.a.example", 443)
+        core_log.warning("[%s] DC%d no fallback available", "x", 1)
+        android_entry.stats.connections_cfproxy += 1
+        st = json.loads(android_entry.status())
+        assert (st["cf_failed"], st["cf_ok"]) == (3, 1)
+        android_entry.stop()
+        assert android_entry.start(_cfg(), str(tmp_path)) is None
+        st = json.loads(android_entry.status())
+        assert (st["cf_failed"], st["cf_ok"]) == (0, 0)
+    finally:
+        android_entry.stop()
+
 def test_note_writes_dated_line_to_log(tmp_path):
     """Lines from the Android side (network changes, automatic restarts) land in
     the proxy log, and the log file carries dates so a shared log can be read later."""
