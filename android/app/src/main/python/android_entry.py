@@ -341,9 +341,28 @@ def _run_proxy_thread(stop_requested: threading.Event) -> None:
                 _async_stop = None
 
 
+class _CfFailureCounter(logging.Handler):
+    """Counts the core's "CF proxy failed" warnings: one per CF proxy host that
+    didn't open a WebSocket. The core counts only the connections that did
+    (stats.connections_cfproxy), and its code stays unedited."""
+
+    def __init__(self) -> None:
+        super().__init__(logging.WARNING)
+        self.count = 0
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if "CF proxy failed" in str(record.msg):
+            self.count += 1
+
+
+_cf_failures = _CfFailureCounter()
+logging.getLogger("tg-mtproto-proxy").addHandler(_cf_failures)
+
+
 def _reset_stats(now: float) -> None:
     """Counters start from zero on every start, not once per app process."""
     stats.__init__()  # the core keeps references to this one object
+    _cf_failures.count = 0
     with _samples_lock:
         _samples.clear()
         _samples.append((now, 0, 0))
@@ -623,6 +642,10 @@ def status() -> str:
                    + stats.connections_h2 + stats.connections_tcp_fallback),
         "bytes_up": stats.bytes_up,
         "bytes_down": stats.bytes_down,
+        # CF proxy WebSockets that opened, and attempts that didn't (each host
+        # tried counts), so ProxyService can tell when the CF connection broke.
+        "cf_ok": stats.connections_cfproxy,
+        "cf_failed": _cf_failures.count,
     })
 
 
