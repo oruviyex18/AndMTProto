@@ -121,6 +121,7 @@
     <string name="cf_transport_auto_body">AndMTProto checks the ways below at every start, on a network change and when Telegram stops getting data, and uses the first that works: TLS with the bypass, plain TLS, no TLS. Recommended.</string>
     <string name="cf_auto_now">Now: %1$s</string>
     <string name="cf_auto_checked">%1$s · checked at %2$s</string>
+    <string name="cf_auto_check_failed">%1$s · couldn\'t check at %2$s</string>
     <string name="cf_auto_checking">Checking…</string>
     <string name="cf_auto_none">No way works on this network</string>
     <string name="cf_auto_cut_off">The network cuts connections to Cloudflare off after about 16 KB</string>

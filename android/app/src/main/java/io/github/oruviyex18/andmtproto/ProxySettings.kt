@@ -171,6 +171,20 @@ object TlsStrategies {
 /** "Choose automatically" tries the CF connections in this order and keeps the first that works. */
 val CF_AUTO_ORDER = listOf(CfTransport.BYPASS, CfTransport.TLS, CfTransport.PLAIN)
 
+/** What "Choose automatically" makes of a CF check; see [chooseCfTransport]. */
+data class CfChoice(val target: CfTransport?, val cutOff: Boolean)
+
+/**
+ * The first way in [CF_AUTO_ORDER] that also carries large data, else the first
+ * where Telegram at least answers; null when none does. [CfChoice.cutOff]: Telegram
+ * answers, but the network cuts every way off after a few KB.
+ */
+fun chooseCfTransport(probe: ProxyCore.CfProbe): CfChoice {
+    val full = CF_AUTO_ORDER.firstOrNull { probe.worksFully(it) }
+    val target = full ?: CF_AUTO_ORDER.firstOrNull { probe.works(it) }
+    return CfChoice(target, cutOff = full == null && target != null)
+}
+
 class SettingsStore(context: Context) {
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences("settings", Context.MODE_PRIVATE)

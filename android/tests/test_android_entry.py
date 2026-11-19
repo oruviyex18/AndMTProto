@@ -404,11 +404,9 @@ def test_note_writes_dated_line_to_log(tmp_path):
 
 
 class _FakeWs:
-    """An open RawWebSocket; Telegram answers the probe unless `silent`, and
-    only `answers` times (a network that freezes after the first exchange)."""
-    def __init__(self, silent: bool = False, answers: int = 1000):
+    """An open RawWebSocket; Telegram answers the probe unless `silent`."""
+    def __init__(self, silent: bool = False):
         self.silent = silent
-        self.answers = answers
         self.sent = []
 
     class writer:  # noqa: N801 - mimics RawWebSocket.writer
@@ -420,14 +418,15 @@ class _FakeWs:
         self.sent.append(data)
 
     async def recv(self):
-        if self.silent or self.answers <= 0:
+        if self.silent:
             await asyncio.sleep(3600)
-        self.answers -= 1
         return b"resPQ"
 
 
-def _fake_download(ok: bool = True):
+def _fake_download(ok: bool = True, seen: list = None):
     async def download(domain, secure, timeout, bypass=False, port=None):
+        if seen is not None:
+            seen.append((domain, ("bypass" if bypass else "tls") if secure else "plain"))
         return 40_000 if ok else 16_000
     return download
 
@@ -447,22 +446,23 @@ def test_probe_cf_tells_tls_block_from_dead_network(monkeypatch):
     monkeypatch.setattr(android_entry, "_probe_strategy",
                         android_entry.tls_bypass.parse(android_entry.tls_bypass.DEFAULT_STRATEGY))
     monkeypatch.setattr(android_entry.balancer, "domains", ["a.example", "b.example"])
-    monkeypatch.setattr(android_entry, "_download_size", _fake_download())
     for tls_ok, bypass_ok, plain_ok in [(False, True, True), (False, False, True),
                                         (True, True, True), (False, False, False)]:
-        seen = []
+        seen, large = [], []
         monkeypatch.setattr(android_entry.RawWebSocket, "connect",
                             _fake_connect(tls_ok, bypass_ok, plain_ok, seen))
+        monkeypatch.setattr(android_entry, "_transfer_size", _fake_download(seen=large))
         assert json.loads(android_entry.probe_cf()) == {
             "tls": tls_ok, "bypass": bypass_ok, "plain": plain_ok,
             "tls_full": tls_ok, "bypass_full": bypass_ok, "plain_full": plain_ok}
         # The small check: both domains, each over plain TLS, bypassed TLS and port 80,
-        # on the DC2 host; then the large check once per way that passed.
+        # on the DC2 host; then the large check on both hosts of each way that passed.
         small = sorted((f"kws2.{d}", way) for d in ("a.example", "b.example")
                        for way in ("tls", "bypass", "plain"))
-        assert sorted(seen[:6]) == small
-        assert sorted(way for _, way in seen[6:]) == sorted(
-            way for way, ok in (("tls", tls_ok), ("bypass", bypass_ok), ("plain", plain_ok)) if ok)
+        assert sorted(seen) == small
+        assert sorted(large) == sorted(
+            (f"kws2.{d}", way) for d in ("a.example", "b.example")
+            for way, ok in (("tls", tls_ok), ("bypass", bypass_ok), ("plain", plain_ok)) if ok)
 
 
 def test_probe_cf_needs_an_answer_not_just_an_open_websocket(monkeypatch):
@@ -479,7 +479,7 @@ def test_probe_cf_needs_an_answer_not_just_an_open_websocket(monkeypatch):
         sockets.append(ws)
         return ws
     monkeypatch.setattr(android_entry.RawWebSocket, "connect", connect)
-    monkeypatch.setattr(android_entry, "_download_size", _fake_download())
+    monkeypatch.setattr(android_entry, "_transfer_size", _fake_download())
     assert json.loads(android_entry.probe_cf(timeout=0.3)) == {
         "tls": False, "bypass": False, "plain": True,
         "tls_full": False, "bypass_full": False, "plain_full": True}
@@ -498,31 +498,30 @@ def test_probe_cf_large_check_catches_a_freeze_after_16_kb(monkeypatch):
     sockets = []
 
     async def connect(host, domain, timeout=10.0, path='/apiws', *, sni=None, secure=True):
-        ws = _FakeWs(answers=1)  # the first answer, then the upload freezes
+        ws = _FakeWs()
         sockets.append(ws)
         return ws
     monkeypatch.setattr(android_entry.RawWebSocket, "connect", connect)
-    monkeypatch.setattr(android_entry, "_download_size", _fake_download())
+    monkeypatch.setattr(android_entry, "_transfer_size", _fake_download(False))
     assert json.loads(android_entry.probe_cf(timeout=0.3)) == {
         "tls": True, "bypass": True, "plain": True,
         "tls_full": False, "bypass_full": False, "plain_full": False}
-    # The large upload is one 24.6 KB WebSocket message after the usual two.
-    large = [ws for ws in sockets if len(ws.sent) == 3]
-    assert large and all(len(ws.sent[2]) == 600 * 41 for ws in large)
-    # A frozen download alone fails it too.
-    monkeypatch.setattr(android_entry.RawWebSocket, "connect",
-                        lambda *a, **k: asyncio.sleep(0, _FakeWs()))
-    monkeypatch.setattr(android_entry, "_download_size", _fake_download(False))
-    result = json.loads(android_entry.probe_cf(timeout=0.3))
-    assert result["plain"] and not result["plain_full"]
+    # The large check goes to Cloudflare only: Telegram got just the small check.
+    assert sockets and all(len(ws.sent) == 2 for ws in sockets)
 
 
-def test_download_check_needs_more_than_24_kb_on_one_connection():
-    """_download_works sends 50 requests for /cdn-cgi/trace at once and needs
-    more than 24 KB back; a server that stops after 16 KB fails it."""
+def test_transfer_check_needs_more_than_24_kb_each_way_on_one_connection():
+    """_transfer_size sends a 25 KB POST and then 50 requests for
+    /cdn-cgi/trace at once; the answers come only after the whole body, and a
+    server that stops after 16 KB gives less than the 24 KB needed."""
     async def scenario(limit):
         async def handle(reader, writer):
-            await reader.readuntil(b"\r\n\r\n")
+            head = await reader.readuntil(b"\r\n\r\n")
+            assert head.startswith(b"POST /cdn-cgi/trace ")
+            length = int(re.search(rb"Content-Length: (\d+)", head).group(1))
+            assert length > 24 * 1024
+            await reader.readexactly(length)
+            assert (await reader.readuntil(b"\r\n\r\n")).startswith(b"GET /cdn-cgi/trace ")
             writer.write((b"x" * 800) * 50 if limit is None else b"x" * limit)
             await writer.drain()
             if limit is not None:
@@ -531,11 +530,11 @@ def test_download_check_needs_more_than_24_kb_on_one_connection():
         server = await asyncio.start_server(handle, "127.0.0.1", 0)
         port = server.sockets[0].getsockname()[1]
         try:
-            return await android_entry._download_works("127.0.0.1", False, 1.0, port=port)
+            return await android_entry._transfer_size("127.0.0.1", False, 1.0, port=port)
         finally:
             server.close()
-    assert asyncio.run(scenario(None)) is True
-    assert asyncio.run(scenario(16 * 1024)) is False
+    assert asyncio.run(scenario(None)) > android_entry._LARGE_BYTES
+    assert asyncio.run(scenario(16 * 1024)) <= android_entry._LARGE_BYTES
 
 
 def test_probe_request_is_req_pq_multi_for_dc2():
