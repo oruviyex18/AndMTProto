@@ -102,7 +102,7 @@ private fun CfAutoStatus(current: CfTransport) {
     val detail = when {
         c == null -> stringResource(R.string.cf_auto_checking)
         else -> stringResource(
-            R.string.cf_auto_checked, c.networkLabel,
+            if (c.failed) R.string.cf_auto_check_failed else R.string.cf_auto_checked, c.networkLabel,
             DateFormat.getTimeFormat(LocalContext.current).format(Date(c.atMillis)),
         )
     }

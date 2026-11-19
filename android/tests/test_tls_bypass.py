@@ -241,10 +241,12 @@ def _start_auto(monkeypatch, **cfg):
     base.update(cfg)
     android_entry._apply_config(android_entry._merged(json.dumps(base)))
     monkeypatch.setattr(android_entry.balancer, "domains", ["a.example", "b.example"])
+    monkeypatch.setattr(android_entry, "_PICK_FRESH_S", 0.0)  # every check afresh
+    android_entry.forget_cf_pick()
 
     async def download(domain, secure, timeout, bypass=False, port=None):
         return 40_000  # the large check passes unless a test says otherwise
-    monkeypatch.setattr(android_entry, "_download_size", download)
+    monkeypatch.setattr(android_entry, "_transfer_size", download)
 
 
 def test_automatic_is_the_default_and_starts_with_the_usual_strategy(monkeypatch):
@@ -289,7 +291,7 @@ def test_probe_cf_with_automatic_strategy_reports_and_switches(monkeypatch):
 
     async def download(domain, secure, timeout, bypass=False, port=None):
         return 40_000
-    monkeypatch.setattr(android_entry, "_download_size", download)
+    monkeypatch.setattr(android_entry, "_transfer_size", download)
     monkeypatch.setattr(android_entry.RawWebSocket, "connect",
                         _connect_opening(lambda w: w in ("--sni-parent", "plain")))
     assert json.loads(android_entry.probe_cf()) == {
@@ -332,13 +334,13 @@ def test_probe_cf_moves_to_a_strategy_the_network_does_not_cut_off(monkeypatch):
     async def download(domain, secure, timeout, bypass=False, port=None):
         full = not secure or (bypass and bypass.text == "--sni-parent")
         return 40_000 if full else 12_000
-    monkeypatch.setattr(android_entry, "_download_size", download)
+    monkeypatch.setattr(android_entry, "_transfer_size", download)
     assert json.loads(android_entry.probe_cf()) == {
         "tls": True, "bypass": True, "plain": True,
         "tls_full": False, "bypass_full": True, "plain_full": True}
     assert tls_bypass.active().text == "--sni-parent"
     # Nothing over TLS carries large data: the first strategy that answers stays.
-    monkeypatch.setattr(android_entry, "_download_size",
+    monkeypatch.setattr(android_entry, "_transfer_size",
                         lambda *a, **k: asyncio.sleep(0, 40_000 if not a[1] else 12_000))
     assert json.loads(android_entry.probe_cf())["bypass_full"] is False
     assert tls_bypass.active().text == tls_bypass.DEFAULT_STRATEGY
@@ -349,8 +351,42 @@ def test_auto_pick_at_start_skips_a_strategy_the_network_cuts_off(monkeypatch):
     doesn't go back to the TLS split the network freezes."""
     _start_auto(monkeypatch)
     monkeypatch.setattr(android_entry.RawWebSocket, "connect", _connect_opening(lambda w: True))
-    monkeypatch.setattr(android_entry, "_download_size",
+    monkeypatch.setattr(android_entry, "_transfer_size",
                         lambda d, secure, t, bypass=False, port=None: asyncio.sleep(
                             0, 40_000 if bypass and bypass.text == "--oob 0+sm" else 12_000))
     asyncio.run(android_entry._auto_pick())
     assert tls_bypass.active().text == "--oob 0+sm"
+
+
+def test_core_pick_and_service_check_share_one_strategy_check(monkeypatch):
+    """At a start the core's pick and ProxyService's check would both try every
+    strategy; the second takes the first's fresh result, until the service
+    says the network changed."""
+    _start_auto(monkeypatch)
+    monkeypatch.setattr(android_entry, "_PICK_FRESH_S", 120.0)
+    tried = []
+
+    def works(way):
+        tried.append(way)
+        return way == "--sni-parent"
+    monkeypatch.setattr(android_entry.RawWebSocket, "connect", _connect_opening(works))
+    asyncio.run(android_entry._auto_pick())
+    assert tls_bypass.active().text == "--sni-parent"
+    first = len(tried)
+    assert json.loads(android_entry.probe_cf())["bypass_full"] is True
+    assert set(tried[first:]) == {"plain"}  # only port 80 was checked again
+    android_entry.forget_cf_pick()
+    android_entry.probe_cf()
+    assert "--sni-parent" in tried[first:]
+
+
+def test_large_check_passes_when_one_of_two_hosts_is_slow(monkeypatch):
+    """The shared CF domains are often overloaded: one slow domain doesn't
+    mark the way cut off while another carries the data."""
+    sizes = {"kws2.a.example": 3_000, "kws2.b.example": 40_000}
+    monkeypatch.setattr(android_entry, "_transfer_size",
+                        lambda d, *a, **k: asyncio.sleep(0, sizes[d]))
+    hosts = ["kws2.a.example", "kws2.b.example"]
+    assert asyncio.run(android_entry._large_works(hosts, True, 1.0, False)) is True
+    sizes["kws2.b.example"] = 12_000
+    assert asyncio.run(android_entry._large_works(hosts, True, 1.0, False)) is False

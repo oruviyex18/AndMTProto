@@ -117,6 +117,7 @@
     <string name="cf_transport_auto_body">AndMTProto проверяет способы ниже при каждом запуске, при смене сети и если Telegram перестал получать данные, и использует первый рабочий: TLS с обходом, обычный TLS, без TLS. Рекомендуется.</string>
     <string name="cf_auto_now">Сейчас: %1$s</string>
     <string name="cf_auto_checked">%1$s · проверено в %2$s</string>
+    <string name="cf_auto_check_failed">%1$s · не удалось проверить в %2$s</string>
     <string name="cf_auto_checking">Проверяется…</string>
     <string name="cf_auto_none">Ни один способ не работает в этой сети</string>
     <string name="cf_auto_cut_off">Сеть обрывает соединения с Cloudflare примерно после 16 КБ</string>

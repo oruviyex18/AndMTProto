@@ -223,8 +223,9 @@ def _apply_config(cfg: Dict[str, Any]) -> None:
     pc.force_test_dc = bool(cfg["force_test_dc"])
     pc.disable_secure = bool(cfg["no_secure"])
     pc.fake_tls_domain = fake_tls
-    global _probe_strategy, _auto_pick_on
+    global _probe_strategy, _auto_pick_on, _picked
     _probe_strategy = strategy
+    _picked = None
     _auto_pick_on = strategy is None and bool(cfg["tls_bypass"])
     if strategy is None:  # automatic: the usual strategy until _auto_pick() has checked
         strategy = tls_bypass.parse(tls_bypass.DEFAULT_STRATEGY)
@@ -236,7 +237,8 @@ def _apply_config(cfg: Dict[str, Any]) -> None:
 _probe_strategy: Optional["tls_bypass.Strategy"] = None
 # The bypass is on with the automatic strategy: picks change what the core uses.
 _auto_pick_on = False
-_AUTO_PICK_DOMAINS = 2
+# What _use_pick last applied since start (None: nothing yet).
+_picked: Any = None
 
 
 def _is_auto(text: str) -> bool:
@@ -633,10 +635,14 @@ _REQ_PQ_MULTI = 0xBE7E8EF1
 
 # Some ISPs (an MTS network on 18 Nov 2026) let connections to Cloudflare
 # carry about 16 KB and then freeze them: the small check passes, but
-# Telegram gets almost nothing. The large check moves more than that each way.
+# Telegram gets almost nothing. The large check moves more than that each way,
+# to Cloudflare only (nothing of it reaches Telegram, so thousands of phones
+# checking don't look like a flood from the shared CF proxy).
 _LARGE_BYTES = 24 * 1024
-_LARGE_REQUESTS = 600  # x 41-byte req_pq_multi = 24.6 KB in one WebSocket message
-_TRACE_REQUESTS = 50   # x ~0.8 KB /cdn-cgi/trace answers, served by every Cloudflare host
+_LARGE_UPLOAD = 25 * 1024  # a POST body, before the requests below
+_TRACE_REQUESTS = 50       # x ~0.8 KB /cdn-cgi/trace answers, served by every Cloudflare host
+_LARGE_HOSTS = 2           # at once: one overloaded shared domain doesn't fail a way
+_LARGE_TIMEOUT_FACTOR = 2  # x the small check's: about 50 KB must cross a slow link too
 
 
 def _probe_stream(dc: int = _PROBE_DC) -> Tuple[bytes, Any]:
@@ -650,10 +656,10 @@ def _probe_stream(dc: int = _PROBE_DC) -> Tuple[bytes, Any]:
     return start, encryptor
 
 
-def _req_pq_multi(seq: int = 0) -> bytes:
+def _req_pq_multi() -> bytes:
     """An unencrypted req_pq_multi in abridged framing (41 bytes), which the DC
-    answers with resPQ; `seq` keeps message ids rising within a connection."""
-    message_id = (int(time.time() * (1 << 32)) & ~3) + 4 * seq
+    answers with resPQ."""
+    message_id = int(time.time() * (1 << 32)) & ~3
     body = (bytes(8) + struct.pack("<qI", message_id, 20)
             + struct.pack("<I", _REQ_PQ_MULTI) + os.urandom(16))
     return bytes([len(body) // 4]) + body
@@ -667,29 +673,19 @@ def _probe_request(dc: int = _PROBE_DC) -> Tuple[bytes, bytes]:
     return start, encryptor.update(_req_pq_multi())
 
 
-async def _ws_works(domain: str, secure: bool, timeout: float,
-                    bypass: Any = False, large: bool = False) -> bool:
+async def _ws_works(domain: str, secure: bool, timeout: float, bypass: Any = False) -> bool:
     """True if Telegram answers through a WebSocket to `domain`, opened the
     way the core opens it with the TLS bypass `bypass` (a Strategy, or False
     for plain TLS). An open WebSocket isn't enough: on 18 Nov 2026 Beeline LTE
-    let the TLS split through but then no data came back. With `large`, it
-    then sends _LARGE_REQUESTS requests (24.6 KB) as one message and needs a
-    second answer: Cloudflare passes a message on only once all of it came,
-    so that answer shows the whole upload got through."""
+    let the TLS split through but then no data came back."""
     tls_bypass.override.set(bypass)  # this task's own context
 
     async def exchange() -> bool:
         ws = await RawWebSocket.connect(domain, domain, timeout=timeout, secure=secure)
         try:
-            start, encryptor = _probe_stream()
+            start, request = _probe_request()
             await ws.send(start)
-            await ws.send(encryptor.update(_req_pq_multi()))
-            if not await ws.recv():
-                return False
-            if not large:
-                return True
-            await ws.send(encryptor.update(
-                b"".join(_req_pq_multi(i) for i in range(1, _LARGE_REQUESTS + 1))))
+            await ws.send(request)
             return bool(await ws.recv())
         finally:
             ws.writer.close()
@@ -726,6 +722,10 @@ def _use_pick(choice: Any) -> None:
         log.warning("AndMTProto: automatic TLS strategy: nothing got through over "
                     "TLS; keeping %s", current.text if current else "plain TLS")
         return
+    global _picked
+    if choice == _picked:
+        return  # the core's pick and probe_cf share one check: log it once
+    _picked = choice
     tls_bypass.set_active(choice or None)
     log.info("AndMTProto: automatic TLS strategy: %s",
              choice.text if choice else "plain TLS (no strategy got through, plain TLS did)")
@@ -739,40 +739,71 @@ def _probe_domains(count: int) -> List[str]:
 
 async def _best_strategy(options: List[Tuple[Any, List[str]]], timeout: float) -> Tuple[Any, Any]:
     """Of the strategies Telegram answered through (from _answering_options),
-    the first that also carries large data, tried in order on one host each,
-    so a strategy the network cuts off (an MTS Wi-Fi froze the TLS split at
-    about 12 KB on 19 Nov 2026) gives way to one it doesn't. Returns (that
-    strategy or None, the choice for _use_pick: it, else the first that
-    answered, False if only plain TLS did, None if nothing did)."""
-    strategies = [(option, hosts[:1]) for option, hosts in options if option]
+    the first that also carries large data, tried in order, so a strategy the
+    network cuts off (an MTS Wi-Fi froze the TLS split at about 12 KB on
+    19 Nov 2026) gives way to one it doesn't. Returns (that strategy or None,
+    the choice for _use_pick: it, else the first that answered, False if only
+    plain TLS did, None if nothing did)."""
+    strategies = [(option, hosts) for option, hosts in options if option]
     for option, hosts in strategies:
         if await _large_works(hosts, True, timeout, option):
             return option, option
     return None, (strategies[0][0] if strategies else (False if options else None))
 
 
+# The last strategy check (see _checked_strategies): (time.monotonic(), the
+# answering options, the strategy that carries large data, the choice).
+_PICK_FRESH_S = 120.0
+_pick_lock = threading.Lock()  # the core's loop and probe_cf's run in different threads
+_last_pick: Optional[Tuple[float, List[Tuple[Any, List[str]]], Any, Any]] = None
+
+
+def forget_cf_pick() -> None:
+    """ProxyService calls this when the network changes, the user restarts the
+    proxy, or nothing gets through: the next check starts afresh."""
+    global _last_pick
+    _last_pick = None
+
+
+async def _checked_strategies(timeout: float) -> Tuple[List[Tuple[Any, List[str]]], Any, Any]:
+    """The automatic strategy's check (_answering_options, then
+    _best_strategy): returns (options, full strategy, choice). The core's
+    start-up pick and ProxyService's check share it: one runs at a time and
+    the other takes its result while it is fresh, so a start, or a restart the
+    check itself caused, doesn't check twice or race on the active strategy."""
+    global _last_pick
+    while not _pick_lock.acquire(blocking=False):
+        await asyncio.sleep(0.1)
+    try:
+        last = _last_pick
+        if last is not None and time.monotonic() - last[0] < _PICK_FRESH_S:
+            return last[1], last[2], last[3]
+        options = await _answering_options(_probe_domains(_PROBE_DOMAINS), timeout)
+        full, choice = await _best_strategy(options, timeout)
+        _last_pick = (time.monotonic(), options, full, choice)
+        return options, full, choice
+    finally:
+        _pick_lock.release()
+
+
 async def _auto_pick() -> None:
     """At core start, picks the automatic strategy for this network."""
     try:
-        options = await _answering_options(_probe_domains(_AUTO_PICK_DOMAINS), _PROBE_TIMEOUT_S)
-        _use_pick((await _best_strategy(options, _PROBE_TIMEOUT_S))[1])
+        _use_pick((await _checked_strategies(_PROBE_TIMEOUT_S))[2])
     except asyncio.CancelledError:
         raise
     except Exception as exc:
         log.warning("AndMTProto: automatic TLS strategy check failed: %r", exc)
 
 
-async def _download_works(domain: str, secure: bool, timeout: float,
-                          bypass: Any = False, port: Optional[int] = None) -> bool:
-    """True if more than _LARGE_BYTES come back on one connection to `domain`,
-    opened like the core's (with the TLS bypass `bypass`): _TRACE_REQUESTS
-    requests for Cloudflare's own /cdn-cgi/trace page, sent at once."""
-    return await _download_size(domain, secure, timeout, bypass, port) > _LARGE_BYTES
-
-
-async def _download_size(domain: str, secure: bool, timeout: float,
+async def _transfer_size(domain: str, secure: bool, timeout: float,
                          bypass: Any = False, port: Optional[int] = None) -> int:
-    """How many bytes of _download_works' answers came within `timeout`."""
+    """How many bytes of answers came back within `timeout` on one connection
+    to `domain`, opened like the core's (with the TLS bypass `bypass`), for a
+    _LARGE_UPLOAD-byte POST and then _TRACE_REQUESTS requests for Cloudflare's
+    own /cdn-cgi/trace page, all sent at once. Cloudflare answers those
+    requests only after reading the whole POST body, so more than _LARGE_BYTES
+    back means large data got through both ways."""
     tls_bypass.override.set(bypass)  # this task's own context
     got = 0
 
@@ -782,10 +813,15 @@ async def _download_size(domain: str, secure: bool, timeout: float,
         reader, writer = await asyncio.open_connection(
             domain, port or (443 if secure else 80), **tls)
         try:
-            writer.write(b"".join(
-                (f"GET /cdn-cgi/trace HTTP/1.1\r\nHost: {domain}\r\nConnection: "
-                 f"{'close' if i == _TRACE_REQUESTS - 1 else 'keep-alive'}\r\n\r\n").encode()
-                for i in range(_TRACE_REQUESTS)))
+            writer.write(
+                (f"POST /cdn-cgi/trace HTTP/1.1\r\nHost: {domain}\r\n"
+                 f"Content-Type: application/octet-stream\r\nContent-Length: {_LARGE_UPLOAD}\r\n"
+                 f"Connection: keep-alive\r\n\r\n").encode()
+                + os.urandom(_LARGE_UPLOAD)
+                + b"".join(
+                    (f"GET /cdn-cgi/trace HTTP/1.1\r\nHost: {domain}\r\nConnection: "
+                     f"{'close' if i == _TRACE_REQUESTS - 1 else 'keep-alive'}\r\n\r\n").encode()
+                    for i in range(_TRACE_REQUESTS)))
             await writer.drain()
             while got <= _LARGE_BYTES:
                 chunk = await reader.read(65536)
@@ -803,49 +839,51 @@ async def _download_size(domain: str, secure: bool, timeout: float,
 
 
 async def _large_works(hosts: List[str], secure: bool, timeout: float, bypass: Any) -> bool:
-    """The large check (both ways at once) on the first of `hosts` that passes
-    it; each failure goes to the log, which part of it failed included."""
-    way = ("TLS with the bypass" if bypass else "TLS") if secure else "no TLS"
-    for host in hosts:
-        up, size = await asyncio.gather(_ws_works(host, secure, timeout, bypass, large=True),
-                                        _download_size(host, secure, timeout, bypass))
-        if up and size > _LARGE_BYTES:
-            return True
-        log.info("AndMTProto: large check over %s to %s: 24.6 KB upload %s, download %.1f KB%s",
-                 way, host, "answered" if up else "got no answer", size / 1024,
-                 "" if size > _LARGE_BYTES else " (needs over 24 KB)")
+    """The large check on up to _LARGE_HOSTS of `hosts` at once, with
+    _LARGE_TIMEOUT_FACTOR x `timeout`: true if one of them passes it. A
+    failure goes to the log."""
+    hosts = hosts[:_LARGE_HOSTS]
+    if not hosts:
+        return False
+    sizes = await asyncio.gather(*(_transfer_size(h, secure, timeout * _LARGE_TIMEOUT_FACTOR,
+                                                  bypass) for h in hosts))
+    if any(size > _LARGE_BYTES for size in sizes):
+        return True
+    way = ((f"TLS with {bypass.text}" if bypass else "TLS") if secure else "no TLS")
+    log.info("AndMTProto: large check over %s failed: %s came back of over 24 KB needed",
+             way, ", ".join(f"{size / 1024:.1f} KB from {h}" for h, size in zip(hosts, sizes)))
     return False
 
 
 async def _probe_cf(domains: List[str], timeout: float,
                     strategy: Any) -> Dict[str, bool]:
+    """Each way: the small check on `domains`, then the large one on the hosts
+    that passed it. With the automatic strategy (`strategy` None), TLS with
+    the bypass and plain TLS come from _checked_strategies."""
     hosts = [f"kws2.{d}" for d in domains]
-    ways = [(True, False), (False, False)] + ([] if strategy is None else [(True, strategy)])
-    results, options = await asyncio.gather(
-        asyncio.gather(*(_ws_works(h, secure, timeout, bypass)
-                         for secure, bypass in ways for h in hosts)),
-        _answering_options(domains, timeout) if strategy is None else asyncio.sleep(0, []))
-    n = len(hosts)
 
-    def answered(i: int) -> List[str]:
-        return [h for h, ok in zip(hosts, results[i * n:(i + 1) * n]) if ok]
+    async def way(secure: bool, bypass: Any) -> Tuple[bool, bool]:
+        oks = await asyncio.gather(*(_ws_works(h, secure, timeout, bypass) for h in hosts))
+        answered = [h for h, ok in zip(hosts, oks) if ok]
+        return bool(answered), await _large_works(answered, secure, timeout, bypass)
 
-    # The automatic strategy tries every strategy that answered (_best_strategy).
-    if strategy is None:
-        bypass_options = options
+    if strategy is not None:
+        (tls, tls_full), (bypass, bypass_full), (plain, plain_full) = await asyncio.gather(
+            way(True, False), way(True, strategy), way(False, False))
     else:
-        bypass_options = [(strategy, answered(2))] if answered(2) else []
+        checked = asyncio.ensure_future(_checked_strategies(timeout))
 
-    # Only the ways that passed the small check, on a host that answered it.
-    tls_full, (full_strategy, choice), plain_full = await asyncio.gather(
-        _large_works(answered(0)[:1], True, timeout, False),
-        _best_strategy(bypass_options, timeout),
-        _large_works(answered(1)[:1], False, timeout, False))
-    if strategy is None:
+        async def tls_way() -> Tuple[bool, bool]:
+            options = (await checked)[0]
+            answered = next((hs for option, hs in options if option is False), [])
+            return bool(answered), await _large_works(answered, True, timeout, False)
+
+        (tls, tls_full), (plain, plain_full), (_, full_strategy, choice) = await asyncio.gather(
+            tls_way(), way(False, False), checked)
         _use_pick(choice)
-    return {"tls": bool(answered(0)), "bypass": bool(choice), "plain": bool(answered(1)),
-            "tls_full": tls_full, "bypass_full": full_strategy is not None,
-            "plain_full": plain_full}
+        bypass, bypass_full = bool(choice), full_strategy is not None
+    return {"tls": tls, "bypass": bypass, "plain": plain,
+            "tls_full": tls_full, "bypass_full": bypass_full, "plain_full": plain_full}
 
 
 def probe_cf(timeout: float = _PROBE_TIMEOUT_S) -> str:
@@ -859,7 +897,7 @@ def probe_cf(timeout: float = _PROBE_TIMEOUT_S) -> str:
     {"tls": bool, "bypass": bool, "plain": bool, "tls_full": bool,
     "bypass_full": bool, "plain_full": bool}, or {} when the CF proxy is off;
     the *_full ones say whether the large check (more than 24 KB each way on
-    one connection) passed too.
+    one connection, to Cloudflare itself) passed too.
     With the automatic strategy, "bypass" means some candidate got through,
     and the best one becomes the strategy in use.
     """

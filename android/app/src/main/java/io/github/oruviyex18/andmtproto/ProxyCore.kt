@@ -86,7 +86,8 @@ object ProxyCore {
      * ([networkLabel], e.g. "Wi-Fi"), when (System.currentTimeMillis) and the way it
      * picked; [chosen] is null when no way worked. [cutOff]: Telegram answers, but
      * the network cuts every way off after about 16 KB, so [chosen] barely works.
-     * Set by ProxyService.
+     * [failed]: the check itself failed; [chosen] is then the way kept.
+     * Set by ProxyService, and cleared when the network changes.
      */
     data class CfCheck(
         val network: Network?,
@@ -94,6 +95,7 @@ object ProxyCore {
         val atMillis: Long,
         val chosen: CfTransport?,
         val cutOff: Boolean = false,
+        val failed: Boolean = false,
     )
 
     private val _cfCheck = MutableStateFlow<CfCheck?>(null)
@@ -124,6 +126,19 @@ object ProxyCore {
     }
 
     /** [keepStalled]: an automatic restart, which by itself doesn't mean data flows again. */
+    /**
+     * The next check of the TLS strategies (the core's at start, or [probeCf]) starts
+     * afresh instead of taking the last one's result: for a new network, a start by the
+     * user, or when nothing gets through.
+     */
+    suspend fun forgetCfPick() = withContext(dispatcher) {
+        try {
+            module.callAttr("forget_cf_pick")
+        } catch (e: Exception) {
+            Log.w(TAG, "Cannot reset the CF check", e)
+        }
+    }
+
     suspend fun stop(keepStalled: Boolean = false) = withContext(dispatcher) {
         if (!keepStalled) _stalled.value = false
         module.callAttr("stop")
