@@ -223,8 +223,9 @@ def _apply_config(cfg: Dict[str, Any]) -> None:
     pc.force_test_dc = bool(cfg["force_test_dc"])
     pc.disable_secure = bool(cfg["no_secure"])
     pc.fake_tls_domain = fake_tls
-    global _probe_strategy, _auto_pick_on
+    global _probe_strategy, _auto_pick_on, _picked
     _probe_strategy = strategy
+    _picked = None
     _auto_pick_on = strategy is None and bool(cfg["tls_bypass"])
     if strategy is None:  # automatic: the usual strategy until _auto_pick() has checked
         strategy = tls_bypass.parse(tls_bypass.DEFAULT_STRATEGY)
@@ -236,6 +237,8 @@ def _apply_config(cfg: Dict[str, Any]) -> None:
 _probe_strategy: Optional["tls_bypass.Strategy"] = None
 # The bypass is on with the automatic strategy: picks change what the core uses.
 _auto_pick_on = False
+# What _use_pick last applied since start (None: nothing yet).
+_picked: Any = None
 
 
 def _is_auto(text: str) -> bool:
@@ -719,6 +722,10 @@ def _use_pick(choice: Any) -> None:
         log.warning("AndMTProto: automatic TLS strategy: nothing got through over "
                     "TLS; keeping %s", current.text if current else "plain TLS")
         return
+    global _picked
+    if choice == _picked:
+        return  # the core's pick and probe_cf share one check: log it once
+    _picked = choice
     tls_bypass.set_active(choice or None)
     log.info("AndMTProto: automatic TLS strategy: %s",
              choice.text if choice else "plain TLS (no strategy got through, plain TLS did)")
