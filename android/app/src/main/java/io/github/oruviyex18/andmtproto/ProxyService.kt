@@ -47,6 +47,9 @@ class ProxyService : Service() {
     /** The network it last checked because nothing got through (see [watchStall]). */
     private var stallCheckedOn: Network? = null
 
+    /** The log already says why the watchdog doesn't restart on a network that cuts Cloudflare off. */
+    private var cutOffNoted = false
+
     /** When the watchdog last restarted the core (elapsedRealtime); at most once per cooldown. */
     private var autoRestartAt = NEVER
 
@@ -181,6 +184,16 @@ class ProxyService : Service() {
             stallCheckedOn = on
             if (checkCf(on)) return true
         }
+        val check = ProxyCore.cfCheck.value
+        if (on != null && check?.network == on && check.cutOff) {
+            // A fresh core can't get past that (an MTS network restarted it 6 times in an
+            // hour on 18 Nov 2026, dropping what did work); the main screen says why.
+            if (!cutOffNoted) {
+                cutOffNoted = true
+                ProxyCore.note("Not restarting the proxy core: ${describeNetwork(on)} cuts connections to Cloudflare off after about 16 KB")
+            }
+            return false
+        }
         if (now - autoRestartAt >= AUTO_RESTART_COOLDOWN_MS) {
             autoRestartAt = now
             ProxyCore.note(
@@ -208,13 +221,23 @@ class ProxyService : Service() {
         if (!settings.cfproxy || !settings.cfAuto) return false
         val probe = ProxyCore.probeCf() ?: return false
         noteProbe(on, probe)
-        val target = CF_AUTO_ORDER.firstOrNull { probe.works(it) }
+        // A way that also carries large data; else one where Telegram at least answers.
+        val full = CF_AUTO_ORDER.firstOrNull { probe.worksFully(it) }
+        val target = full ?: CF_AUTO_ORDER.firstOrNull { probe.works(it) }
+        val cutOff = full == null && target != null
         ProxyCore.setCfCheck(
-            ProxyCore.CfCheck(on, describeNetwork(on), System.currentTimeMillis(), target)
+            ProxyCore.CfCheck(on, describeNetwork(on), System.currentTimeMillis(), target, cutOff)
         )
         if (target == null) {
             ProxyCore.note("No way to reach the CF proxy works on ${describeNetwork(on)}; keeping ${label(settings.cfTransport)}")
             return false
+        }
+        if (cutOff) {
+            ProxyCore.note(
+                "${describeNetwork(on)} cuts every way to the CF proxy off after about 16 KB; only another network or a VPN helps"
+            )
+        } else {
+            cutOffNoted = false
         }
         if (target == settings.cfTransport) return false
         ProxyCore.note("Choosing the CF connection automatically: ${label(target)} (was ${label(settings.cfTransport)})")
@@ -231,10 +254,14 @@ class ProxyService : Service() {
     }
 
     private fun noteProbe(on: Network, probe: ProxyCore.CfProbe) {
-        fun word(ok: Boolean) = if (ok) "works" else "blocked"
+        fun word(t: CfTransport) = when {
+            probe.worksFully(t) -> "works"
+            probe.works(t) -> "answers, but cut off after a few KB"
+            else -> "blocked"
+        }
         ProxyCore.note(
-            "CF proxy check over ${describeNetwork(on)}: TLS ${word(probe.tls)}, " +
-                "TLS with the bypass ${word(probe.bypass)}, without TLS ${word(probe.plain)}"
+            "CF proxy check over ${describeNetwork(on)}: TLS ${word(CfTransport.TLS)}, " +
+                "TLS with the bypass ${word(CfTransport.BYPASS)}, without TLS ${word(CfTransport.PLAIN)}"
         )
     }
 

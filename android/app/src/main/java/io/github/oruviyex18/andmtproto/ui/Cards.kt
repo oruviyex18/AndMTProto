@@ -103,6 +103,20 @@ internal fun StalledCard(onRestart: () -> Unit) {
     }
 }
 
+/**
+ * "Choose automatically" found that Telegram answers through the CF proxy, but
+ * the network cuts every connection to it off after about 16 KB.
+ */
+@Composable
+internal fun CfCutOffCard() {
+    AttentionCard(
+        title = stringResource(R.string.card_cf_cut_off_title),
+        body = stringResource(R.string.card_cf_cut_off_body),
+        container = MaterialTheme.colorScheme.errorContainer,
+        content = MaterialTheme.colorScheme.onErrorContainer,
+    )
+}
+
 /** "Choose automatically" found no way to reach the CF proxy on this network. */
 @Composable
 internal fun CfNothingWorksCard() {

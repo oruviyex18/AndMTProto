@@ -112,6 +112,13 @@ private fun CfAutoStatus(current: CfTransport) {
             style = MaterialTheme.typography.bodyMedium,
             color = if (c != null && c.chosen == null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
         )
+        if (c?.cutOff == true) {
+            Text(
+                stringResource(R.string.cf_auto_cut_off),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
         Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

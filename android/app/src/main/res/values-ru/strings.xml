@@ -88,6 +88,8 @@
     <string name="restart_proxy">Перезапустить прокси</string>
     <string name="card_cf_none_title">CF-прокси не работает в этой сети</string>
     <string name="card_cf_none_body">Ни один способ подключения не прошёл проверку: ни TLS с обходом, ни обычный TLS, ни без TLS. Если Telegram не загружается, попробуйте другую сеть или мобильный интернет.</string>
+    <string name="card_cf_cut_off_title">Сеть обрывает CF-прокси</string>
+    <string name="card_cf_cut_off_body">Telegram отвечает через CF-прокси, но провайдер обрывает каждое соединение с Cloudflare примерно после 16 КБ, поэтому чаты и медиа почти не загружаются. AndMTProto не может это обойти: попробуйте другую сеть, мобильный интернет или VPN.</string>
     <string name="card_done">Готово</string>
     <string name="card_update_body">У вас %1$s. «Скачать» откроет новый APK в браузере; откройте скачанный файл и нажмите «Обновить». Настройки сохранятся.</string>
     <string name="card_later">Позже</string>
@@ -117,6 +119,7 @@
     <string name="cf_auto_checked">%1$s · проверено в %2$s</string>
     <string name="cf_auto_checking">Проверяется…</string>
     <string name="cf_auto_none">Ни один способ не работает в этой сети</string>
+    <string name="cf_auto_cut_off">Сеть обрывает соединения с Cloudflare примерно после 16 КБ</string>
     <string name="cf_line_auto">CF: %1$s · выбрано автоматически</string>
     <string name="cf_line_fixed">CF: %1$s</string>
     <string name="cf_transport_bypass">TLS с обходом блокировки</string>

@@ -114,8 +114,10 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
             if (status.state == ProxyState.RUNNING && stalled) {
                 StalledCard(onRestart = { ProxyService.start(context, restart = true) })
             }
-            if (status.state == ProxyState.RUNNING && saved.cfproxy && saved.cfAuto && cfCheck?.let { it.chosen == null } == true) {
-                CfNothingWorksCard()
+            if (status.state == ProxyState.RUNNING && saved.cfproxy && saved.cfAuto) {
+                cfCheck?.let { check ->
+                    if (check.chosen == null) CfNothingWorksCard() else if (check.cutOff) CfCutOffCard()
+                }
             }
             if (status.state == ProxyState.RUNNING) {
                 TelegramCard(
