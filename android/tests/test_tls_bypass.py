@@ -390,3 +390,16 @@ def test_large_check_passes_when_one_of_two_hosts_is_slow(monkeypatch):
     assert asyncio.run(android_entry._large_works(hosts, True, 1.0, False)) is True
     sizes["kws2.b.example"] = 12_000
     assert asyncio.run(android_entry._large_works(hosts, True, 1.0, False)) is False
+
+
+def test_nothing_got_through_is_logged_once_per_start(monkeypatch, caplog):
+    """The core's pick and the service's check share one result; on a network
+    where no TLS gets through, the warning appears once, not once per caller."""
+    _start_auto(monkeypatch)
+    monkeypatch.setattr(android_entry.RawWebSocket, "connect", _connect_opening(lambda w: w == "plain"))
+    with caplog.at_level("WARNING"):
+        asyncio.run(android_entry._auto_pick())
+        android_entry.probe_cf()
+        android_entry._use_pick(None)
+    assert sum("nothing got through over TLS" in r.getMessage() for r in caplog.records) == 1
+    assert tls_bypass.active().text == tls_bypass.DEFAULT_STRATEGY
