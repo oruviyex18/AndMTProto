@@ -126,16 +126,40 @@ internal fun CfNothingWorksCard() {
     )
 }
 
+/** What the Telegram card shows; see [telegramCardState]. */
+internal enum class TelegramCardState { CONNECT, LINKED, EXTRA_ENTRIES, OLD_KEY }
+
+/**
+ * Rejected handshakes in the last 10 minutes before the card warns. Telegram checks a
+ * stale entry twice each time its proxy list opens, and every ~5 s with auto-switch on;
+ * a client with the right secret is never rejected.
+ */
+internal const val STALE_PROXY_HINT_MIN_BAD = 2
+
+/**
+ * [linked]: Telegram has used the proxy with the current port and secret. Rejected
+ * handshakes then mean extra or old entries next to the working one; without it, the
+ * entry Telegram uses has an old key (after «Новый» or a reinstall, seen 20 Nov 2026
+ * with a single entry), and only re-adding the proxy helps.
+ */
+internal fun telegramCardState(linked: Boolean, badRecent: Int): TelegramCardState = when {
+    badRecent >= STALE_PROXY_HINT_MIN_BAD ->
+        if (linked) TelegramCardState.EXTRA_ENTRIES else TelegramCardState.OLD_KEY
+    linked -> TelegramCardState.LINKED
+    else -> TelegramCardState.CONNECT
+}
+
 /**
  * Adding the proxy to Telegram: two big buttons until Telegram has used it with the
- * current port and secret, then a collapsed card with both actions in its menu. The
- * stale-proxy hint expands it again: its text asks to delete the extra entries and
- * restart Telegram, and the buttons re-add the current entry in case the one kept
- * was an old one (Telegram's list shows them all as the same address).
+ * current port and secret, then a collapsed card with both actions in its menu.
+ * Rejected handshakes expand it again: with extra entries its text asks to delete them
+ * and restart Telegram; with an old key, to add the proxy again and delete the old
+ * entry. The buttons re-add the current entry either way (Telegram's list shows all
+ * entries as the same address).
  */
 @Composable
-internal fun TelegramCard(linked: Boolean, stale: Boolean, onOpen: () -> Unit, onCopy: () -> Unit) {
-    if (linked && !stale) {
+internal fun TelegramCard(state: TelegramCardState, onOpen: () -> Unit, onCopy: () -> Unit) {
+    if (state == TelegramCardState.LINKED) {
         var menu by remember { mutableStateOf(false) }
         Card(
             Modifier.fillMaxWidth(),
@@ -163,11 +187,17 @@ internal fun TelegramCard(linked: Boolean, stale: Boolean, onOpen: () -> Unit, o
         }
         return
     }
+    val (title, body) = when (state) {
+        TelegramCardState.OLD_KEY -> R.string.card_old_key_title to R.string.card_old_key_body
+        TelegramCardState.EXTRA_ENTRIES -> R.string.card_stale_title to R.string.stale_proxy_hint
+        else -> R.string.card_connect_title to R.string.card_connect_body
+    }
+    val warn = state != TelegramCardState.CONNECT
     AttentionCard(
-        title = stringResource(if (stale) R.string.card_stale_title else R.string.card_connect_title),
-        body = stringResource(if (stale) R.string.stale_proxy_hint else R.string.card_connect_body),
-        container = if (stale) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
-        content = if (stale) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer,
+        title = stringResource(title),
+        body = stringResource(body),
+        container = if (warn) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
+        content = if (warn) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer,
         actionsBelow = true,
     ) {
         Button(onClick = onOpen, Modifier.fillMaxWidth()) { Text(stringResource(R.string.action_open_telegram)) }
