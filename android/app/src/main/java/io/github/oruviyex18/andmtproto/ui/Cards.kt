@@ -137,16 +137,21 @@ internal enum class TelegramCardState { CONNECT, LINKED, EXTRA_ENTRIES, OLD_KEY 
 internal const val STALE_PROXY_HINT_MIN_BAD = 2
 
 /**
- * [linked]: Telegram has used the proxy with the current port and secret. Rejected
- * handshakes then mean extra or old entries next to the working one; without it, the
- * entry Telegram uses has an old key (after «Новый» or a reinstall, seen 20 Nov 2026
- * with a single entry), and only re-adding the proxy helps.
+ * [linked]: Telegram has used the proxy with the current port and secret. Without it,
+ * rejected handshakes mean the entry Telegram uses has an old key (after «Новый» or a
+ * reinstall, seen 20 Nov 2026 with a single entry), and only re-adding the proxy helps.
+ * With it, they mean extra or old entries next to the working one, but only those
+ * rejected since Telegram connected ([badSinceLinked]; null if that happened before this
+ * app process): the old key's rejections stay in the 10-minute window for a while after
+ * the user re-added the proxy and deleted the old entry.
  */
-internal fun telegramCardState(linked: Boolean, badRecent: Int): TelegramCardState = when {
-    badRecent >= STALE_PROXY_HINT_MIN_BAD ->
-        if (linked) TelegramCardState.EXTRA_ENTRIES else TelegramCardState.OLD_KEY
-    linked -> TelegramCardState.LINKED
-    else -> TelegramCardState.CONNECT
+internal fun telegramCardState(linked: Boolean, badRecent: Int, badSinceLinked: Int? = null): TelegramCardState {
+    val warn = badRecent >= STALE_PROXY_HINT_MIN_BAD
+    return when {
+        !linked -> if (warn) TelegramCardState.OLD_KEY else TelegramCardState.CONNECT
+        warn && (badSinceLinked ?: badRecent) >= STALE_PROXY_HINT_MIN_BAD -> TelegramCardState.EXTRA_ENTRIES
+        else -> TelegramCardState.LINKED
+    }
 }
 
 /**

@@ -67,7 +67,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         store.registerListener(settingsListener)
         ProxyCore.refresh()
         viewModelScope.launch {
-            status.collect { if (it.running && it.routed > 0) markLinked() }
+            status.collect { if (it.running && it.routed > 0) markLinked(it.badTotal) }
         }
     }
 
@@ -179,8 +179,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return uiPrefs.getBoolean(KEY_MIUI_AUTOSTART_DONE, false)
     }
 
-    private fun markLinked() {
+    /**
+     * Rejected handshakes since Telegram connected with the current key, while this
+     * process saw that happen; see telegramCardState.
+     */
+    fun badSinceLinked(status: ProxyStatus): Int? = badAtLink?.let { at ->
+        if (status.badTotal >= at) status.badTotal - at else status.badTotal // the core restarted
+    }
+
+    private var badAtLink: Int? = null
+
+    private fun markLinked(badTotal: Int) {
         if (_telegramLinked.value) return
+        badAtLink = badTotal
         uiPrefs.edit { putString(KEY_LINKED, linkKey(_saved.value)) }
         _telegramLinked.value = true
     }

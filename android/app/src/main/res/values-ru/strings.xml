@@ -81,7 +81,7 @@
     <string name="card_linked_body">Открыть или скопировать ссылку снова — в меню ⋮.</string>
     <string name="card_stale_title">В Telegram есть лишние прокси</string>
     <string name="card_old_key_title">В Telegram старый ключ прокси</string>
-    <string name="card_old_key_body">Telegram подключается с ключом, который не совпадает с ключом AndMTProto, — например, после нового секрета или переустановки. Нажмите «Открыть в Telegram», затем «Подключить прокси». После этого удалите старую запись 127.0.0.1 в Telegram (Настройки → Данные и память → Настройки прокси): у неё другой ключ под ⓘ.</string>
+    <string name="card_old_key_body">Telegram подключается с ключом, который не совпадает с ключом AndMTProto (например, после нового секрета или переустановки). Нажмите «Открыть в Telegram», затем «Подключить прокси». После этого удалите старую запись 127.0.0.1 в Telegram (Настройки → Данные и память → Настройки прокси): у неё другой ключ под ⓘ.</string>
     <string name="card_background_title">Работа в фоне</string>
     <string name="settings_saved_on_leave">Изменения сохраняются при выходе из настроек; работающий прокси перезапустится с ними.</string>
     <string name="card_autostart_title">Автозапуск</string>

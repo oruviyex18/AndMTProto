@@ -85,7 +85,7 @@
     <string name="card_linked_body">Open or copy the link again from the ⋮ menu.</string>
     <string name="card_stale_title">Telegram has redundant proxies</string>
     <string name="card_old_key_title">Telegram uses an old key</string>
-    <string name="card_old_key_body">Telegram connects with a key that doesn\'t match AndMTProto\'s, e.g. after a new secret or a reinstall. Tap “Open in Telegram”, then “Connect proxy”. Then delete the old 127.0.0.1 entry in Telegram (Settings → Data and Storage → Proxy Settings): it has a different key under ⓘ.</string>
+    <string name="card_old_key_body">Telegram connects with a key that doesn\'t match AndMTProto\'s (e.g. after a new secret or a reinstall). Tap “Open in Telegram”, then “Connect proxy”. Then delete the old 127.0.0.1 entry in Telegram (Settings → Data and Storage → Proxy Settings): it has a different key under ⓘ.</string>
     <string name="card_background_title">Background work</string>
     <string name="settings_saved_on_leave">Changes are saved when you leave Settings; a running proxy restarts with them.</string>
     <string name="card_autostart_title">Autostart</string>

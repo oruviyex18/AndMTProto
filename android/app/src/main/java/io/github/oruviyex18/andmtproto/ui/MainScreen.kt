@@ -114,7 +114,7 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
             }
             if (status.state == ProxyState.RUNNING) {
                 TelegramCard(
-                    state = telegramCardState(linked, status.badRecent),
+                    state = telegramCardState(linked, status.badRecent, vm.badSinceLinked(status)),
                     onOpen = { vm.link()?.let(context::openInTelegram) },
                     onCopy = { vm.link()?.let(context::copyToClipboard) },
                 )

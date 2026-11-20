@@ -20,4 +20,12 @@ class TelegramCardStateTest {
         // 20 Nov 2026: one entry in Telegram, the app got a new secret: ~12 rejections a minute.
         assertEquals(TelegramCardState.OLD_KEY, telegramCardState(linked = false, badRecent = 12))
     }
+
+    @Test
+    fun oldRejectionsAfterTheFixDontWarn() {
+        // Re-added and old entry deleted: the old key's rejections are still in the window.
+        assertEquals(TelegramCardState.LINKED, telegramCardState(linked = true, badRecent = 52, badSinceLinked = 1))
+        // But an old entry left in place keeps being rejected.
+        assertEquals(TelegramCardState.EXTRA_ENTRIES, telegramCardState(linked = true, badRecent = 60, badSinceLinked = 8))
+    }
 }
