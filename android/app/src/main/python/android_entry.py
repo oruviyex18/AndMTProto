@@ -225,7 +225,7 @@ def _apply_config(cfg: Dict[str, Any]) -> None:
     pc.fake_tls_domain = fake_tls
     global _probe_strategy, _auto_pick_on, _picked
     _probe_strategy = strategy
-    _picked = None
+    _picked = _UNPICKED
     _auto_pick_on = strategy is None and bool(cfg["tls_bypass"])
     if strategy is None:  # automatic: the usual strategy until _auto_pick() has checked
         strategy = tls_bypass.parse(tls_bypass.DEFAULT_STRATEGY)
@@ -237,8 +237,10 @@ def _apply_config(cfg: Dict[str, Any]) -> None:
 _probe_strategy: Optional["tls_bypass.Strategy"] = None
 # The bypass is on with the automatic strategy: picks change what the core uses.
 _auto_pick_on = False
-# What _use_pick last applied since start (None: nothing yet).
-_picked: Any = None
+# What _use_pick last applied or reported since start: a strategy, False for
+# plain TLS, None when nothing got through, or _UNPICKED before the first check.
+_UNPICKED = object()
+_picked: Any = _UNPICKED
 
 
 def _is_auto(text: str) -> bool:
@@ -738,17 +740,15 @@ async def _answering_options(domains: List[str], timeout: float) -> List[Tuple[A
 
 def _use_pick(choice: Any) -> None:
     """Applies a _best_strategy choice while the automatic strategy is on."""
-    if not _auto_pick_on:
-        return
+    global _picked
+    if not _auto_pick_on or choice == _picked:
+        return  # the core's pick and probe_cf share one check: log it once
+    _picked = choice
     if choice is None:
         current = tls_bypass.active()
         log.warning("AndMTProto: automatic TLS strategy: nothing got through over "
                     "TLS; keeping %s", current.text if current else "plain TLS")
         return
-    global _picked
-    if choice == _picked:
-        return  # the core's pick and probe_cf share one check: log it once
-    _picked = choice
     tls_bypass.set_active(choice or None)
     log.info("AndMTProto: automatic TLS strategy: %s",
              choice.text if choice else "plain TLS (no strategy got through, plain TLS did)")
