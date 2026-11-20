@@ -41,13 +41,6 @@ import io.github.oruviyex18.andmtproto.ProxyCore
 import io.github.oruviyex18.andmtproto.ProxyService
 import io.github.oruviyex18.andmtproto.R
 
-/**
- * Rejected handshakes in the last 10 minutes before the stale-proxy hint shows. Telegram
- * checks a stale entry twice each time its proxy list opens, and every ~5 s with
- * auto-switch on; a client with the right secret is never rejected.
- */
-private const val STALE_PROXY_HINT_MIN_BAD = 2
-
 /** The two screens: everyday status on Main, set-once options in Settings. */
 @Composable
 fun AppRoot(vm: MainViewModel = viewModel()) {
@@ -121,8 +114,7 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
             }
             if (status.state == ProxyState.RUNNING) {
                 TelegramCard(
-                    linked = linked,
-                    stale = status.badRecent >= STALE_PROXY_HINT_MIN_BAD,
+                    state = telegramCardState(linked, status.badRecent),
                     onOpen = { vm.link()?.let(context::openInTelegram) },
                     onCopy = { vm.link()?.let(context::copyToClipboard) },
                 )
