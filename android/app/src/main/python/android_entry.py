@@ -597,9 +597,11 @@ async def _ws_on_demand(pool: Any, dc: int, is_media: bool,
             _next_fronted = pool.try_fronting_first = fronted
             _next_fronted_at = time.monotonic()
             _route_worked(key)
-            log.info("DC%d%s WebSocket opened on demand%s",
+            # Upstream then logs "-> WS pool hit" for it, as for any WebSocket get() returns.
+            log.info("DC%d%s WebSocket opened on demand (%s; the core logs it"
+                     " as a WS pool hit)",
                      dc, " media" if is_media else "",
-                     " (pool paused)" if _pool_paused else " (pool empty)")
+                     "pool paused" if _pool_paused else "pool empty")
             return ws
     now = time.monotonic()
     # Nobody got through meanwhile, and no other connection failing alongside
