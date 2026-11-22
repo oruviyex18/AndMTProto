@@ -741,6 +741,7 @@ def _fresh_routes(monkeypatch, paused=True, pool_size=4):
     monkeypatch.setattr(android_entry, "_on_demand_after", {})
     monkeypatch.setattr(android_entry, "_next_fronted", None)
     monkeypatch.setattr(android_entry, "_route_first", {})
+    monkeypatch.setattr(android_entry, "_next_fronted_at", float("-inf"))
     monkeypatch.setattr(android_entry, "_ON_DEMAND_FIRST_TRY_S", 0.1)
     monkeypatch.setattr(android_entry, "_ON_DEMAND_TRY_S", 0.05)
     monkeypatch.setattr(android_entry, "_pool_paused", paused)
@@ -1034,6 +1035,33 @@ def test_a_route_blocked_in_both_modes_keeps_its_swaps_to_itself(monkeypatch):
     media_blocked = False
     assert asyncio.run(ws_pool.get(2, False)) is opened
     assert tries == [("kws2.web.telegram.org", True)]
+
+
+def test_a_newer_success_elsewhere_beats_a_routes_old_swap(monkeypatch):
+    """DC4 failed while the network came up, then DC2 opened with fronting:
+    DC4's next attempt goes by DC2's newer success, not by its own swap."""
+    ws_pool = _fresh_routes(monkeypatch)
+    monkeypatch.setattr(android_entry.proxy_config, "dc_redirects",
+                        {2: "149.154.167.220", 4: "149.154.167.91"})
+    monkeypatch.setattr(android_entry, "_next_fronted", True)
+    opened = _PooledWs()
+    tries = []
+    network_up = False
+
+    async def open_ws(target_ip, domain, path, fronted):
+        tries.append((domain, fronted))
+        if not network_up:
+            await asyncio.sleep(3600)
+        return opened
+    monkeypatch.setattr(android_entry, "_open_ws", open_ws)
+    assert asyncio.run(ws_pool.get(4, False)) is None
+    assert android_entry._route_first == {(4, False, False): False}
+    network_up = True
+    assert asyncio.run(ws_pool.get(2, False)) is opened
+    android_entry._on_demand_after.clear()  # DC4's back-off has ended
+    tries.clear()
+    assert asyncio.run(ws_pool.get(4, False)) is opened
+    assert tries == [("kws4.web.telegram.org", True)]
 
 
 def test_pool_hit_teaches_the_mode_to_on_demand(monkeypatch):

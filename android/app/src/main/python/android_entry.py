@@ -449,10 +449,13 @@ _on_demand_after: Dict[Tuple[int, bool, bool], float] = {}
 # since the app started (e.g. on boot): upstream's default is then only a guess
 # and gets the short try.
 _next_fronted: Optional[bool] = None
+# When an on-demand WebSocket last opened, or a pool hit changed _next_fronted.
+_next_fronted_at = float("-inf")
 # Per route, reset at each core start: after an attempt where every try failed,
-# the mode that had the short try, which gets the long one next. So after a
-# network change each mode gets it in turn, as a slow VPN needs, and a route
-# blocked in both modes doesn't change what the other routes try first.
+# the mode that had the short try, which gets the long one next unless a
+# WebSocket opened since (_next_fronted_at). So after a network change each mode
+# gets it in turn, as a slow VPN needs, and a route blocked in both modes
+# doesn't change what the other routes try first.
 _route_first: Dict[Tuple[int, bool, bool], bool] = {}
 # One lock per event loop: pause and resume changes apply one at a time.
 _pool_locks: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]" = (
@@ -554,12 +557,11 @@ async def _ws_on_demand(pool: Any, dc: int, is_media: bool,
     Tries each domain with the route's or _next_fronted's mode first, for up
     to _ON_DEMAND_FIRST_TRY_S, then the other mode for up to _ON_DEMAND_TRY_S,
     all of them within _ON_DEMAND_BUDGET_S; before anything has worked,
-    upstream's guess gets the short try and the other mode the long one. When
-    every try
-    fails the route backs off, so on a network that blocks it the next
-    connections go straight to the fallback; not when another connection
-    opened one on it meanwhile. Skipped while either back-off runs."""
-    global _next_fronted
+    upstream's guess gets the short try and the other mode the long one.
+    When every try fails the route backs off, so on a network that blocks it
+    the next connections go straight to the fallback; not when another
+    connection opened one on it meanwhile. Skipped while either back-off runs."""
+    global _next_fronted, _next_fronted_at
     target_ip = proxy_config.dc_redirects.get(dc)
     if not target_ip:
         return None
@@ -568,7 +570,9 @@ async def _ws_on_demand(pool: Any, dc: int, is_media: bool,
     if started < max(pool._refill_after.get(key, 0), _on_demand_after.get(key, 0)):
         return None
     path = WS_PATH_TEST if is_test_dc else WS_PATH
-    first = _route_first.get(key, _next_fronted)
+    first = _next_fronted
+    if key in _route_first and _on_demand_failed_at.get(key, float("-inf")) > _next_fronted_at:
+        first = _route_first[key]
     long_first = first is not None
     if first is None:  # a guess: upstream's default after pool.reset()
         first = pool.try_fronting_first
@@ -591,6 +595,7 @@ async def _ws_on_demand(pool: Any, dc: int, is_media: bool,
             if fronted:
                 stats.connections_fronting += 1
             _next_fronted = pool.try_fronting_first = fronted
+            _next_fronted_at = time.monotonic()
             _route_worked(key)
             log.info("DC%d%s WebSocket opened on demand%s",
                      dc, " media" if is_media else "",
@@ -637,7 +642,7 @@ def _install_on_demand_ws() -> None:
 
     async def get(dc: int, is_media: bool, *, is_test_dc: bool = False
                   ) -> Optional[RawWebSocket]:
-        global _next_fronted
+        global _next_fronted, _next_fronted_at
         if not _pool_size:
             return await upstream_get(dc, is_media, is_test_dc=is_test_dc)
         if _pool_paused:
@@ -645,7 +650,10 @@ def _install_on_demand_ws() -> None:
         ws = await upstream_get(dc, is_media, is_test_dc=is_test_dc)
         key = (dc, is_media, is_test_dc)
         if ws is not None:
-            _next_fronted = ws_pool.try_fronting_first  # the mode its refills last used
+            if _next_fronted is not ws_pool.try_fronting_first:
+                # The mode its refills last used; repeated hits don't count as news.
+                _next_fronted = ws_pool.try_fronting_first
+                _next_fronted_at = time.monotonic()
             _route_worked(key)
             return ws
         if key in _route_ok_at:
