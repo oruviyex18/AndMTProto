@@ -24,6 +24,7 @@ listens on `127.0.0.1:1443`, and the Telegram app connects to it as an MTProto p
 | `gradle/libs.versions.toml` | Versions of Gradle plugins and Android libraries. |
 | `tests/test_android_entry.py` | Desktop pytest for the adapter against the real `proxy/`. |
 | `tests/test_ws_pool_control.py`, `tests/test_tls_bypass.py` | Desktop pytest for the two modules above. |
+| `tests/core_helpers.py` | Helpers for the tests that start the real core. |
 
 ## Build
 

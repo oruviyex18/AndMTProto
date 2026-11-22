@@ -416,7 +416,7 @@ def set_pool_paused(paused: bool) -> None:
         if not ws_pool_control.set_paused(paused):
             return
         core = _async_stop
-    ws_pool_control.apply_to_core(core)
+    ws_pool_control.apply_to_core(core, paused)
 
 
 async def _run_until_stopped(stop_ev: asyncio.Event) -> None:
