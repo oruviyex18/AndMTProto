@@ -737,6 +737,7 @@ def _fresh_routes(monkeypatch, paused=True, pool_size=4):
     from proxy import pool
     monkeypatch.setattr(android_entry, "_route_ok_at", {})
     monkeypatch.setattr(android_entry, "_on_demand_failures", {})
+    monkeypatch.setattr(android_entry, "_on_demand_failed_at", {})
     monkeypatch.setattr(android_entry, "_on_demand_after", {})
     monkeypatch.setattr(android_entry, "_last_fronted", None)
     monkeypatch.setattr(android_entry, "_pool_paused", paused)
@@ -868,6 +869,52 @@ def test_empty_pool_opens_on_demand_once_the_route_worked(monkeypatch):
     android_entry._route_ok_at[(2, False, False)] = time.monotonic()
     assert asyncio.run(ws_pool.get(2, False)) is opened
     assert tries == [False]
+
+
+def test_failures_in_one_burst_back_off_once(monkeypatch):
+    """Telegram opens several connections at once; when they all fail together
+    (the network isn't up yet) the route backs off as after one failure, not
+    one doubling per connection."""
+    ws_pool = _fresh_routes(monkeypatch)
+    monkeypatch.setattr(android_entry, "_ON_DEMAND_TRY_S", 0.02)
+    # A back-off that ends before the burst's last connections give up.
+    monkeypatch.setattr(ws_pool, "REFILL_BACKOFF_INITIAL", 0.001)
+
+    async def blocked(target_ip, domain, path, fronted):
+        await asyncio.sleep(3600)
+
+    async def one(delay):
+        await asyncio.sleep(delay)
+        return await ws_pool.get(2, False)
+
+    async def burst():
+        return await asyncio.gather(*(one(i * 0.005) for i in range(8)))
+    monkeypatch.setattr(android_entry, "_open_ws", blocked)
+    assert asyncio.run(burst()) == [None] * 8
+    assert android_entry._on_demand_failures == {(2, False, False): 1}
+
+
+def test_pool_hit_clears_the_on_demand_back_off(monkeypatch):
+    """A back-off left from the screen-off time mustn't keep an emptied pool's
+    connections on the fallback once pool hits show the route works."""
+    from collections import deque
+    from proxy import pool
+    ws_pool = _fresh_routes(monkeypatch, paused=False)
+    key = (2, False, False)
+    pooled = _PooledWs()
+    for name in ("_refilling", "_rotating"):
+        monkeypatch.setattr(pool.ws_pool, name, {})
+    monkeypatch.setattr(pool.ws_pool, "_idle", {key: deque([(pooled, time.monotonic())])})
+    monkeypatch.setattr(pool.ws_pool, "_is_stale", lambda *args: False)
+
+    async def no_refill(*args):
+        return None
+    monkeypatch.setattr(pool.ws_pool, "_connect_one", no_refill)
+    android_entry._on_demand_failures[key] = 12
+    android_entry._on_demand_after[key] = time.monotonic() + 3600
+    assert asyncio.run(ws_pool.get(2, False)) is pooled
+    assert android_entry._on_demand_failures == {} and android_entry._on_demand_after == {}
+    assert key in android_entry._route_ok_at
 
 
 def test_pool_size_zero_set_by_the_user_still_skips_websockets(monkeypatch):

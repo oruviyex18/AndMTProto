@@ -431,10 +431,12 @@ _ON_DEMAND_BUDGET_S = 9.0
 _FRONTING_SNI = "sprinthost.ru"
 # Per route (dc, is_media, is_test_dc), reset at each core start: when a direct
 # WebSocket last opened (a pool hit or on demand), and the back-off after
-# on-demand attempts where every try failed. The pool's own back-off stays its
-# own, so failures with the screen off don't hold its refills back afterwards.
+# on-demand attempts where every try failed (how many failures, when the last
+# was counted, until when). The pool's own back-off stays its own, so failures
+# with the screen off don't hold its refills back afterwards.
 _route_ok_at: Dict[Tuple[int, bool, bool], float] = {}
 _on_demand_failures: Dict[Tuple[int, bool, bool], int] = {}
+_on_demand_failed_at: Dict[Tuple[int, bool, bool], float] = {}
 _on_demand_after: Dict[Tuple[int, bool, bool], float] = {}
 # Whether fronting was what last worked, kept across core starts unlike the pool's.
 _last_fronted: Optional[bool] = None
@@ -449,6 +451,7 @@ def _reset_on_demand() -> None:
     """A new core usually means a new network: what worked before says nothing."""
     _route_ok_at.clear()
     _on_demand_failures.clear()
+    _on_demand_failed_at.clear()
     _on_demand_after.clear()
 
 
@@ -565,21 +568,34 @@ async def _ws_on_demand(pool: Any, dc: int, is_media: bool,
             if fronted:
                 stats.connections_fronting += 1
             _last_fronted = pool.try_fronting_first = fronted
-            _route_ok_at[key] = time.monotonic()
-            _on_demand_failures.pop(key, None)
-            _on_demand_after.pop(key, None)
+            _route_worked(key)
             log.info("DC%d%s WebSocket opened on demand%s",
                      dc, " media" if is_media else "",
                      " (pool paused)" if _pool_paused else " (pool empty)")
             return ws
-    if _route_ok_at.get(key, float("-inf")) < started:  # nobody got through meanwhile
+    now = time.monotonic()
+    # Nobody got through meanwhile, and no other connection failing alongside
+    # this one has counted a failure since it started: a burst of connections
+    # that fail together counts once, as one failed refill does upstream.
+    if (_route_ok_at.get(key, float("-inf")) < started
+            and _on_demand_failed_at.get(key, float("-inf")) < started):
         _route_ok_at.pop(key, None)
         failures = _on_demand_failures.get(key, 0) + 1
         _on_demand_failures[key] = failures
-        _on_demand_after[key] = time.monotonic() + min(
+        _on_demand_failed_at[key] = now
+        _on_demand_after[key] = now + min(
             pool.REFILL_BACKOFF_INITIAL * (2 ** min(failures - 1, 12)),
             pool.REFILL_BACKOFF_MAX)
     return None
+
+
+def _route_worked(key: Tuple[int, bool, bool]) -> None:
+    """A direct WebSocket just opened on this route (a pool hit or on demand):
+    whatever failed before, the next on-demand try needn't wait."""
+    _route_ok_at[key] = time.monotonic()
+    _on_demand_failures.pop(key, None)
+    _on_demand_failed_at.pop(key, None)
+    _on_demand_after.pop(key, None)
 
 
 def _install_on_demand_ws() -> None:
@@ -602,7 +618,7 @@ def _install_on_demand_ws() -> None:
         ws = await upstream_get(dc, is_media, is_test_dc=is_test_dc)
         key = (dc, is_media, is_test_dc)
         if ws is not None:
-            _route_ok_at[key] = time.monotonic()
+            _route_worked(key)
             return ws
         if key in _route_ok_at:
             return await _ws_on_demand(ws_pool, dc, is_media, is_test_dc)
