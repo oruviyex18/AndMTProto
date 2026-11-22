@@ -740,6 +740,7 @@ def _fresh_routes(monkeypatch, paused=True, pool_size=4):
     monkeypatch.setattr(android_entry, "_on_demand_failed_at", {})
     monkeypatch.setattr(android_entry, "_on_demand_after", {})
     monkeypatch.setattr(android_entry, "_next_fronted", None)
+    monkeypatch.setattr(android_entry, "_route_first", {})
     monkeypatch.setattr(android_entry, "_ON_DEMAND_FIRST_TRY_S", 0.1)
     monkeypatch.setattr(android_entry, "_ON_DEMAND_TRY_S", 0.05)
     monkeypatch.setattr(android_entry, "_pool_paused", paused)
@@ -1007,6 +1008,32 @@ def test_a_proven_mode_hands_over_the_long_try_on_a_new_network(monkeypatch):
     assert first is None and second is opened
     assert tries == [True, False, False]
     assert android_entry._next_fronted is False
+    assert android_entry._route_first == {}  # the success teaches every route
+
+
+def test_a_route_blocked_in_both_modes_keeps_its_swaps_to_itself(monkeypatch):
+    """DC2 media fails whatever the mode; that mustn't make DC2's main route,
+    where fronting works, start with the other mode."""
+    ws_pool = _fresh_routes(monkeypatch)
+    monkeypatch.setattr(android_entry, "_next_fronted", True)
+    opened = _PooledWs()
+    tries = []
+
+    media_blocked = True
+
+    async def open_ws(target_ip, domain, path, fronted):
+        tries.append((domain, fronted))
+        if media_blocked:
+            await asyncio.sleep(3600)
+        return opened
+    monkeypatch.setattr(android_entry, "_open_ws", open_ws)
+    assert asyncio.run(ws_pool.get(2, True)) is None  # media: every try hangs
+    assert android_entry._next_fronted is True
+    assert android_entry._route_first == {(2, True, False): False}
+    tries.clear()
+    media_blocked = False
+    assert asyncio.run(ws_pool.get(2, False)) is opened
+    assert tries == [("kws2.web.telegram.org", True)]
 
 
 def test_pool_hit_teaches_the_mode_to_on_demand(monkeypatch):

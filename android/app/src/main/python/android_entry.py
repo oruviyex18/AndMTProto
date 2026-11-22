@@ -442,15 +442,18 @@ _route_ok_at: Dict[Tuple[int, bool, bool], float] = {}
 _on_demand_failures: Dict[Tuple[int, bool, bool], int] = {}
 _on_demand_failed_at: Dict[Tuple[int, bool, bool], float] = {}
 _on_demand_after: Dict[Tuple[int, bool, bool], float] = {}
-# Whether the next on-demand attempt tries fronting first, with the long try;
-# kept across core starts unlike the pool's mode. A WebSocket that opens sets it
-# to its mode (on demand, or the pool's mode on a pool hit, so what the pool
-# learned on a new network wins over what worked on the old one). An attempt
-# where every try failed hands the long try to the mode that had the short one,
-# so after a network change each mode gets it in turn, as a slow VPN needs. None
-# until anything has worked since the app started (e.g. on boot): upstream's
-# default is then only a guess and gets the short try.
+# Whether on-demand attempts try fronting first, with the long try; kept across
+# core starts unlike the pool's mode. A WebSocket that opens sets it to its mode
+# (on demand, or the pool's mode on a pool hit, so what the pool learned on a new
+# network wins over what worked on the old one). None until anything has worked
+# since the app started (e.g. on boot): upstream's default is then only a guess
+# and gets the short try.
 _next_fronted: Optional[bool] = None
+# Per route, reset at each core start: after an attempt where every try failed,
+# the mode that had the short try, which gets the long one next. So after a
+# network change each mode gets it in turn, as a slow VPN needs, and a route
+# blocked in both modes doesn't change what the other routes try first.
+_route_first: Dict[Tuple[int, bool, bool], bool] = {}
 # One lock per event loop: pause and resume changes apply one at a time.
 _pool_locks: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]" = (
     weakref.WeakKeyDictionary())
@@ -464,6 +467,7 @@ def _reset_on_demand() -> None:
     _on_demand_failures.clear()
     _on_demand_failed_at.clear()
     _on_demand_after.clear()
+    _route_first.clear()
 
 
 def set_pool_paused(paused: bool) -> None:
@@ -547,10 +551,11 @@ async def _ws_on_demand(pool: Any, dc: int, is_media: bool,
                         is_test_dc: bool) -> Optional[RawWebSocket]:
     """A direct WebSocket for one connection, or None for the fallback.
 
-    Tries each domain with _next_fronted's mode first, for up to
-    _ON_DEMAND_FIRST_TRY_S, then the other mode for up to _ON_DEMAND_TRY_S, all
-    of them within _ON_DEMAND_BUDGET_S; before anything has worked, upstream's
-    guess gets the short try and the other mode the long one. When every try
+    Tries each domain with the route's or _next_fronted's mode first, for up
+    to _ON_DEMAND_FIRST_TRY_S, then the other mode for up to _ON_DEMAND_TRY_S,
+    all of them within _ON_DEMAND_BUDGET_S; before anything has worked,
+    upstream's guess gets the short try and the other mode the long one. When
+    every try
     fails the route backs off, so on a network that blocks it the next
     connections go straight to the fallback; not when another connection
     opened one on it meanwhile. Skipped while either back-off runs."""
@@ -563,11 +568,12 @@ async def _ws_on_demand(pool: Any, dc: int, is_media: bool,
     if started < max(pool._refill_after.get(key, 0), _on_demand_after.get(key, 0)):
         return None
     path = WS_PATH_TEST if is_test_dc else WS_PATH
-    next_fronted = _next_fronted
-    if next_fronted is not None:
-        first, tries_s = next_fronted, (_ON_DEMAND_FIRST_TRY_S, _ON_DEMAND_TRY_S)
-    else:  # a guess: upstream's default after pool.reset()
-        first, tries_s = pool.try_fronting_first, (_ON_DEMAND_TRY_S, _ON_DEMAND_FIRST_TRY_S)
+    first = _route_first.get(key, _next_fronted)
+    long_first = first is not None
+    if first is None:  # a guess: upstream's default after pool.reset()
+        first = pool.try_fronting_first
+    tries_s = ((_ON_DEMAND_FIRST_TRY_S, _ON_DEMAND_TRY_S) if long_first
+               else (_ON_DEMAND_TRY_S, _ON_DEMAND_FIRST_TRY_S))
     deadline = started + _ON_DEMAND_BUDGET_S
     for domain in ws_domains(dc, is_media):
         for fronted, try_s in ((first, tries_s[0]), (not first, tries_s[1])):
@@ -600,9 +606,8 @@ async def _ws_on_demand(pool: Any, dc: int, is_media: bool,
         failures = _on_demand_failures.get(key, 0) + 1
         _on_demand_failures[key] = failures
         _on_demand_failed_at[key] = now
-        if _next_fronted is next_fronted:  # nothing opened elsewhere meanwhile
-            # The mode that had the short try gets the long one next.
-            _next_fronted = first if next_fronted is None else not first
+        # The mode that had the short try gets the long one next on this route.
+        _route_first[key] = (not first) if long_first else first
         _on_demand_after[key] = now + min(
             pool.REFILL_BACKOFF_INITIAL * (2 ** min(failures - 1, 12)),
             pool.REFILL_BACKOFF_MAX)
@@ -616,6 +621,7 @@ def _route_worked(key: Tuple[int, bool, bool]) -> None:
     _on_demand_failures.pop(key, None)
     _on_demand_failed_at.pop(key, None)
     _on_demand_after.pop(key, None)
+    _route_first.pop(key, None)  # _next_fronted now says what works
 
 
 def _install_on_demand_ws() -> None:
