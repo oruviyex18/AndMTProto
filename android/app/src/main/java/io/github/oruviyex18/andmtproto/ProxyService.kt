@@ -112,11 +112,12 @@ class ProxyService : Service() {
     }
 
     /**
-     * The core's pool of WebSockets opened ahead of time only spares a new
-     * connection its handshake, and renews them every 2 minutes, which keeps the
-     * radio busy (see android_entry._pool_paused). With the screen off for
-     * [POOL_PAUSE_DELAY_MS] it pauses; with the screen on it fills again at once.
-     * The delay keeps a glance at the lock screen from closing and reopening it.
+     * The core's pool of WebSockets opened ahead of time renews them every 2
+     * minutes whether or not Telegram uses them, which keeps the radio busy (see
+     * android_entry._pool_paused). With the screen off for [POOL_PAUSE_DELAY_MS]
+     * it pauses, and new connections open their WebSocket themselves; with the
+     * screen on it fills again at once. The delay keeps a glance at the lock
+     * screen from closing and reopening it.
      */
     private fun onScreen(on: Boolean) {
         poolPause?.cancel()
