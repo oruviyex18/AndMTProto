@@ -446,6 +446,10 @@ _on_demand_after: Dict[Tuple[int, bool, bool], float] = {}
 # pool's: set by on-demand WebSockets, and from the pool's mode on a pool hit, so
 # what the pool learned on a new network wins over what worked on the old one.
 _last_fronted: Optional[bool] = None
+# Until a mode has worked (after the app starts, e.g. on boot with the screen
+# off): the mode an attempt tries first. Each failed attempt swaps it, so each
+# mode gets the long try every other attempt, as a slow VPN needs.
+_unproven_first: Optional[bool] = None
 # One lock per event loop: pause and resume changes apply one at a time.
 _pool_locks: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]" = (
     weakref.WeakKeyDictionary())
@@ -543,13 +547,13 @@ async def _ws_on_demand(pool: Any, dc: int, is_media: bool,
     """A direct WebSocket for one connection, or None for the fallback.
 
     Tries each domain with the mode that last worked first, for up to
-    _ON_DEMAND_FIRST_TRY_S (_ON_DEMAND_TRY_S while no mode has worked yet), then
-    the other mode for up to _ON_DEMAND_TRY_S, all
-    of them up to _ON_DEMAND_BUDGET_S. When every try
-    fails the route backs off, so on a network that blocks it the next
-    connections go straight to the fallback; not when another connection
-    opened one on it meanwhile. Skipped while either back-off runs."""
-    global _last_fronted
+    _ON_DEMAND_FIRST_TRY_S, then the other mode for up to _ON_DEMAND_TRY_S, all
+    of them within _ON_DEMAND_BUDGET_S. While no mode has worked yet, the first
+    is a guess and gets the short try, the other the long one (_unproven_first).
+    When every try fails the route backs off, so on a network that blocks it
+    the next connections go straight to the fallback; not when another
+    connection opened one on it meanwhile. Skipped while either back-off runs."""
+    global _last_fronted, _unproven_first
     target_ip = proxy_config.dc_redirects.get(dc)
     if not target_ip:
         return None
@@ -558,14 +562,16 @@ async def _ws_on_demand(pool: Any, dc: int, is_media: bool,
     if started < max(pool._refill_after.get(key, 0), _on_demand_after.get(key, 0)):
         return None
     path = WS_PATH_TEST if is_test_dc else WS_PATH
-    if _last_fronted is not None:
-        first, first_try_s = _last_fronted, _ON_DEMAND_FIRST_TRY_S
-    else:  # upstream's default after pool.reset(): nothing says it works
-        first, first_try_s = pool.try_fronting_first, _ON_DEMAND_TRY_S
+    proven = _last_fronted is not None
+    if proven:
+        first = _last_fronted
+        tries_s = (_ON_DEMAND_FIRST_TRY_S, _ON_DEMAND_TRY_S)
+    else:  # a guess: upstream's default after pool.reset(), then swapped
+        first = _unproven_first if _unproven_first is not None else pool.try_fronting_first
+        tries_s = (_ON_DEMAND_TRY_S, _ON_DEMAND_FIRST_TRY_S)
     deadline = started + _ON_DEMAND_BUDGET_S
     for domain in ws_domains(dc, is_media):
-        for fronted, try_s in ((first, first_try_s),
-                               (not first, _ON_DEMAND_TRY_S)):
+        for fronted, try_s in ((first, tries_s[0]), (not first, tries_s[1])):
             left = deadline - time.monotonic()
             if left <= 0:
                 break
@@ -595,6 +601,8 @@ async def _ws_on_demand(pool: Any, dc: int, is_media: bool,
         failures = _on_demand_failures.get(key, 0) + 1
         _on_demand_failures[key] = failures
         _on_demand_failed_at[key] = now
+        if not proven and _last_fronted is None:
+            _unproven_first = not first  # the other mode gets the long try next
         _on_demand_after[key] = now + min(
             pool.REFILL_BACKOFF_INITIAL * (2 ** min(failures - 1, 12)),
             pool.REFILL_BACKOFF_MAX)

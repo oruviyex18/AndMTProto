@@ -740,6 +740,7 @@ def _fresh_routes(monkeypatch, paused=True, pool_size=4):
     monkeypatch.setattr(android_entry, "_on_demand_failed_at", {})
     monkeypatch.setattr(android_entry, "_on_demand_after", {})
     monkeypatch.setattr(android_entry, "_last_fronted", None)
+    monkeypatch.setattr(android_entry, "_unproven_first", None)
     monkeypatch.setattr(android_entry, "_ON_DEMAND_FIRST_TRY_S", 0.1)
     monkeypatch.setattr(android_entry, "_ON_DEMAND_TRY_S", 0.05)
     monkeypatch.setattr(android_entry, "_pool_paused", paused)
@@ -954,6 +955,32 @@ def test_an_unproven_mode_gets_the_short_try(monkeypatch):
     monkeypatch.setattr(android_entry, "_open_ws", open_ws)
     assert asyncio.run(asyncio.wait_for(ws_pool.get(2, False), 5)) is opened
     assert tries == [False, True]
+
+
+def test_unproven_modes_take_turns_at_the_long_try(monkeypatch):
+    """After a boot with the screen off nothing has worked yet; through a slow
+    VPN only the long try gets through, so each mode must get it in turn, or
+    no mode ever works and the long try is never reached."""
+    ws_pool = _fresh_routes(monkeypatch)
+    monkeypatch.setattr(android_entry, "_ON_DEMAND_FIRST_TRY_S", 0.5)
+    monkeypatch.setattr(ws_pool, "REFILL_BACKOFF_INITIAL", 0.001)
+    opened = _PooledWs()
+    tries = []
+
+    async def slow_unfronted(target_ip, domain, path, fronted):
+        tries.append(fronted)
+        await asyncio.sleep(0.15 if not fronted else 3600)  # fronting blocked
+        return opened
+    monkeypatch.setattr(android_entry, "_open_ws", slow_unfronted)
+
+    async def scenario():
+        first = await ws_pool.get(2, False)  # unfronted: short try, fronted: long
+        await asyncio.sleep(0.01)  # the back-off ends
+        return first, await ws_pool.get(2, False)  # fronted short, unfronted long
+    first, second = asyncio.run(scenario())
+    assert first is None and second is opened
+    assert tries == [False, True, True, False]
+    assert android_entry._last_fronted is False
 
 
 def test_pool_hit_teaches_the_mode_to_on_demand(monkeypatch):
