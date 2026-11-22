@@ -119,13 +119,15 @@ def set_paused(paused: bool) -> bool:
     return True
 
 
-def apply_to_core(core: Optional[Tuple[asyncio.AbstractEventLoop, Any]]) -> None:
-    """Pauses or fills the running core's pools as set_paused() last said.
-    `core` is the core's loop and stop event, or None when none runs."""
+def apply_to_core(core: Optional[Tuple[asyncio.AbstractEventLoop, Any]],
+                  paused: bool) -> None:
+    """Pauses or fills the running core's pools after set_paused(paused)
+    changed the state; the task applies whatever state is current when it
+    runs. `core` is the core's loop and stop event, or None when none runs."""
     if core is None or not _pool_size:
         return
     log.info("AndMTProto: WebSocket pool %s",
-             "paused (screen off)" if _pool_paused else "resumed")
+             "paused (screen off)" if paused else "resumed")
     loop, stop_ev = core
 
     def schedule() -> None:
