@@ -739,8 +739,7 @@ def _fresh_routes(monkeypatch, paused=True, pool_size=4):
     monkeypatch.setattr(android_entry, "_on_demand_failures", {})
     monkeypatch.setattr(android_entry, "_on_demand_failed_at", {})
     monkeypatch.setattr(android_entry, "_on_demand_after", {})
-    monkeypatch.setattr(android_entry, "_last_fronted", None)
-    monkeypatch.setattr(android_entry, "_unproven_first", None)
+    monkeypatch.setattr(android_entry, "_next_fronted", None)
     monkeypatch.setattr(android_entry, "_ON_DEMAND_FIRST_TRY_S", 0.1)
     monkeypatch.setattr(android_entry, "_ON_DEMAND_TRY_S", 0.05)
     monkeypatch.setattr(android_entry, "_pool_paused", paused)
@@ -788,7 +787,7 @@ def test_each_fronting_mode_gets_its_own_try(monkeypatch):
     assert asyncio.run(ws_pool.get(2, False)) is opened
     assert tries == [False, True]
     # Fronting worked, so it goes first next time, even after a core start.
-    assert android_entry._last_fronted is True
+    assert android_entry._next_fronted is True
     android_entry._reset_on_demand()
     assert asyncio.run(ws_pool.get(2, False)) is opened
     assert tries == [False, True, True]
@@ -925,7 +924,7 @@ def test_the_mode_that_worked_gets_a_longer_try(monkeypatch):
     that last worked gets as long as upstream's pool would give it."""
     ws_pool = _fresh_routes(monkeypatch)
     monkeypatch.setattr(android_entry, "_ON_DEMAND_FIRST_TRY_S", 0.5)
-    monkeypatch.setattr(android_entry, "_last_fronted", True)
+    monkeypatch.setattr(android_entry, "_next_fronted", True)
     opened = _PooledWs()
     tries = []
 
@@ -976,11 +975,38 @@ def test_unproven_modes_take_turns_at_the_long_try(monkeypatch):
     async def scenario():
         first = await ws_pool.get(2, False)  # unfronted: short try, fronted: long
         await asyncio.sleep(0.01)  # the back-off ends
-        return first, await ws_pool.get(2, False)  # fronted short, unfronted long
+        return first, await ws_pool.get(2, False)  # unfronted long: gets through
     first, second = asyncio.run(scenario())
     assert first is None and second is opened
-    assert tries == [False, True, True, False]
-    assert android_entry._last_fronted is False
+    assert tries == [False, True, False]
+    assert android_entry._next_fronted is False
+
+
+def test_a_proven_mode_hands_over_the_long_try_on_a_new_network(monkeypatch):
+    """Fronting worked on the old network; on the new one it hangs and the
+    other mode needs the long try (a slow VPN). After a failed attempt the
+    other mode gets it, or nothing would ever open until the screen came on."""
+    ws_pool = _fresh_routes(monkeypatch)
+    monkeypatch.setattr(android_entry, "_next_fronted", True)
+    monkeypatch.setattr(android_entry, "_ON_DEMAND_FIRST_TRY_S", 0.5)
+    monkeypatch.setattr(ws_pool, "REFILL_BACKOFF_INITIAL", 0.001)
+    opened = _PooledWs()
+    tries = []
+
+    async def slow_unfronted(target_ip, domain, path, fronted):
+        tries.append(fronted)
+        await asyncio.sleep(0.15 if not fronted else 3600)
+        return opened
+    monkeypatch.setattr(android_entry, "_open_ws", slow_unfronted)
+
+    async def scenario():
+        first = await ws_pool.get(2, False)  # fronted long, unfronted short
+        await asyncio.sleep(0.01)
+        return first, await ws_pool.get(2, False)  # unfronted long
+    first, second = asyncio.run(scenario())
+    assert first is None and second is opened
+    assert tries == [True, False, False]
+    assert android_entry._next_fronted is False
 
 
 def test_pool_hit_teaches_the_mode_to_on_demand(monkeypatch):
@@ -990,7 +1016,7 @@ def test_pool_hit_teaches_the_mode_to_on_demand(monkeypatch):
     from collections import deque
     from proxy import pool
     ws_pool = _fresh_routes(monkeypatch, paused=False)
-    monkeypatch.setattr(android_entry, "_last_fronted", True)
+    monkeypatch.setattr(android_entry, "_next_fronted", True)
     key = (2, False, False)
     for name in ("_refilling", "_rotating"):
         monkeypatch.setattr(pool.ws_pool, name, {})
@@ -1014,7 +1040,7 @@ def test_pool_hit_teaches_the_mode_to_on_demand(monkeypatch):
         return hit, await ws_pool.get(2, False)  # the pool is empty now
     hit, on_demand = asyncio.run(scenario())
     assert hit is not opened and on_demand is opened
-    assert tries == [False] and android_entry._last_fronted is False
+    assert tries == [False] and android_entry._next_fronted is False
 
 
 def test_pool_size_zero_set_by_the_user_still_skips_websockets(monkeypatch):

@@ -442,14 +442,15 @@ _route_ok_at: Dict[Tuple[int, bool, bool], float] = {}
 _on_demand_failures: Dict[Tuple[int, bool, bool], int] = {}
 _on_demand_failed_at: Dict[Tuple[int, bool, bool], float] = {}
 _on_demand_after: Dict[Tuple[int, bool, bool], float] = {}
-# Whether fronting was what last worked, kept across core starts unlike the
-# pool's: set by on-demand WebSockets, and from the pool's mode on a pool hit, so
-# what the pool learned on a new network wins over what worked on the old one.
-_last_fronted: Optional[bool] = None
-# Until a mode has worked (after the app starts, e.g. on boot with the screen
-# off): the mode an attempt tries first. Each failed attempt swaps it, so each
-# mode gets the long try every other attempt, as a slow VPN needs.
-_unproven_first: Optional[bool] = None
+# Whether the next on-demand attempt tries fronting first, with the long try;
+# kept across core starts unlike the pool's mode. A WebSocket that opens sets it
+# to its mode (on demand, or the pool's mode on a pool hit, so what the pool
+# learned on a new network wins over what worked on the old one). An attempt
+# where every try failed hands the long try to the mode that had the short one,
+# so after a network change each mode gets it in turn, as a slow VPN needs. None
+# until anything has worked since the app started (e.g. on boot): upstream's
+# default is then only a guess and gets the short try.
+_next_fronted: Optional[bool] = None
 # One lock per event loop: pause and resume changes apply one at a time.
 _pool_locks: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]" = (
     weakref.WeakKeyDictionary())
@@ -546,14 +547,14 @@ async def _ws_on_demand(pool: Any, dc: int, is_media: bool,
                         is_test_dc: bool) -> Optional[RawWebSocket]:
     """A direct WebSocket for one connection, or None for the fallback.
 
-    Tries each domain with the mode that last worked first, for up to
+    Tries each domain with _next_fronted's mode first, for up to
     _ON_DEMAND_FIRST_TRY_S, then the other mode for up to _ON_DEMAND_TRY_S, all
-    of them within _ON_DEMAND_BUDGET_S. While no mode has worked yet, the first
-    is a guess and gets the short try, the other the long one (_unproven_first).
-    When every try fails the route backs off, so on a network that blocks it
-    the next connections go straight to the fallback; not when another
-    connection opened one on it meanwhile. Skipped while either back-off runs."""
-    global _last_fronted, _unproven_first
+    of them within _ON_DEMAND_BUDGET_S; before anything has worked, upstream's
+    guess gets the short try and the other mode the long one. When every try
+    fails the route backs off, so on a network that blocks it the next
+    connections go straight to the fallback; not when another connection
+    opened one on it meanwhile. Skipped while either back-off runs."""
+    global _next_fronted
     target_ip = proxy_config.dc_redirects.get(dc)
     if not target_ip:
         return None
@@ -562,13 +563,11 @@ async def _ws_on_demand(pool: Any, dc: int, is_media: bool,
     if started < max(pool._refill_after.get(key, 0), _on_demand_after.get(key, 0)):
         return None
     path = WS_PATH_TEST if is_test_dc else WS_PATH
-    proven = _last_fronted is not None
-    if proven:
-        first = _last_fronted
-        tries_s = (_ON_DEMAND_FIRST_TRY_S, _ON_DEMAND_TRY_S)
-    else:  # a guess: upstream's default after pool.reset(), then swapped
-        first = _unproven_first if _unproven_first is not None else pool.try_fronting_first
-        tries_s = (_ON_DEMAND_TRY_S, _ON_DEMAND_FIRST_TRY_S)
+    next_fronted = _next_fronted
+    if next_fronted is not None:
+        first, tries_s = next_fronted, (_ON_DEMAND_FIRST_TRY_S, _ON_DEMAND_TRY_S)
+    else:  # a guess: upstream's default after pool.reset()
+        first, tries_s = pool.try_fronting_first, (_ON_DEMAND_TRY_S, _ON_DEMAND_FIRST_TRY_S)
     deadline = started + _ON_DEMAND_BUDGET_S
     for domain in ws_domains(dc, is_media):
         for fronted, try_s in ((first, tries_s[0]), (not first, tries_s[1])):
@@ -585,7 +584,7 @@ async def _ws_on_demand(pool: Any, dc: int, is_media: bool,
                 continue
             if fronted:
                 stats.connections_fronting += 1
-            _last_fronted = pool.try_fronting_first = fronted
+            _next_fronted = pool.try_fronting_first = fronted
             _route_worked(key)
             log.info("DC%d%s WebSocket opened on demand%s",
                      dc, " media" if is_media else "",
@@ -601,8 +600,9 @@ async def _ws_on_demand(pool: Any, dc: int, is_media: bool,
         failures = _on_demand_failures.get(key, 0) + 1
         _on_demand_failures[key] = failures
         _on_demand_failed_at[key] = now
-        if not proven and _last_fronted is None:
-            _unproven_first = not first  # the other mode gets the long try next
+        if _next_fronted is next_fronted:  # nothing opened elsewhere meanwhile
+            # The mode that had the short try gets the long one next.
+            _next_fronted = first if next_fronted is None else not first
         _on_demand_after[key] = now + min(
             pool.REFILL_BACKOFF_INITIAL * (2 ** min(failures - 1, 12)),
             pool.REFILL_BACKOFF_MAX)
@@ -631,7 +631,7 @@ def _install_on_demand_ws() -> None:
 
     async def get(dc: int, is_media: bool, *, is_test_dc: bool = False
                   ) -> Optional[RawWebSocket]:
-        global _last_fronted
+        global _next_fronted
         if not _pool_size:
             return await upstream_get(dc, is_media, is_test_dc=is_test_dc)
         if _pool_paused:
@@ -639,7 +639,7 @@ def _install_on_demand_ws() -> None:
         ws = await upstream_get(dc, is_media, is_test_dc=is_test_dc)
         key = (dc, is_media, is_test_dc)
         if ws is not None:
-            _last_fronted = ws_pool.try_fronting_first  # the mode its refills last used
+            _next_fronted = ws_pool.try_fronting_first  # the mode its refills last used
             _route_worked(key)
             return ws
         if key in _route_ok_at:
