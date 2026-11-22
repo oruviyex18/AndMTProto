@@ -740,6 +740,8 @@ def _fresh_routes(monkeypatch, paused=True, pool_size=4):
     monkeypatch.setattr(android_entry, "_on_demand_failed_at", {})
     monkeypatch.setattr(android_entry, "_on_demand_after", {})
     monkeypatch.setattr(android_entry, "_last_fronted", None)
+    monkeypatch.setattr(android_entry, "_ON_DEMAND_FIRST_TRY_S", 0.1)
+    monkeypatch.setattr(android_entry, "_ON_DEMAND_TRY_S", 0.05)
     monkeypatch.setattr(android_entry, "_pool_paused", paused)
     monkeypatch.setattr(android_entry, "_pool_size", pool_size)
     monkeypatch.setattr(android_entry.proxy_config, "pool_size", 0 if paused else pool_size)
@@ -915,6 +917,57 @@ def test_pool_hit_clears_the_on_demand_back_off(monkeypatch):
     assert asyncio.run(ws_pool.get(2, False)) is pooled
     assert android_entry._on_demand_failures == {} and android_entry._on_demand_after == {}
     assert key in android_entry._route_ok_at
+
+
+def test_the_mode_that_worked_gets_a_longer_try(monkeypatch):
+    """Through a slow VPN a working route takes several seconds: the mode
+    that last worked gets as long as upstream's pool would give it."""
+    ws_pool = _fresh_routes(monkeypatch)
+    monkeypatch.setattr(android_entry, "_last_fronted", True)
+    opened = _PooledWs()
+    tries = []
+
+    async def slow(target_ip, domain, path, fronted):
+        tries.append(fronted)
+        await asyncio.sleep(0.07)  # longer than the other mode's try
+        return opened
+    monkeypatch.setattr(android_entry, "_open_ws", slow)
+    assert asyncio.run(ws_pool.get(2, False)) is opened
+    assert tries == [True]
+
+
+def test_pool_hit_teaches_the_mode_to_on_demand(monkeypatch):
+    """Fronting worked on the old network, the pool connects without it on
+    the new one: once the pool has served a connection, on-demand WebSockets
+    try the pool's mode first instead of losing a try on the old one."""
+    from collections import deque
+    from proxy import pool
+    ws_pool = _fresh_routes(monkeypatch, paused=False)
+    monkeypatch.setattr(android_entry, "_last_fronted", True)
+    key = (2, False, False)
+    for name in ("_refilling", "_rotating"):
+        monkeypatch.setattr(pool.ws_pool, name, {})
+    monkeypatch.setattr(pool.ws_pool, "_idle", {key: deque([(_PooledWs(), time.monotonic())])})
+    monkeypatch.setattr(pool.ws_pool, "_is_stale", lambda *args: False)
+    opened = _PooledWs()
+    tries = []
+
+    async def no_refill(*args):
+        return None
+
+    async def open_ws(target_ip, domain, path, fronted):
+        tries.append(fronted)
+        return opened
+    monkeypatch.setattr(pool.ws_pool, "_connect_one", no_refill)
+    monkeypatch.setattr(android_entry, "_open_ws", open_ws)
+    ws_pool.try_fronting_first = False  # what the pool's refills learned
+
+    async def scenario():
+        hit = await ws_pool.get(2, False)
+        return hit, await ws_pool.get(2, False)  # the pool is empty now
+    hit, on_demand = asyncio.run(scenario())
+    assert hit is not opened and on_demand is opened
+    assert tries == [False] and android_entry._last_fronted is False
 
 
 def test_pool_size_zero_set_by_the_user_still_skips_websockets(monkeypatch):
