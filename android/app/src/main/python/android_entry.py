@@ -422,14 +422,15 @@ _pool_size = DEFAULT_CONFIG["pool_size"]
 _pool_paused = False
 # The tries (a domain, with or without fronting) of an on-demand WebSocket, and
 # all of them for one connection. A working route opens in well under a second,
-# 3-6 s through a slow VPN: the mode that last worked gets as long as upstream's
-# pool gives a try (7-8 s), the other mode a shorter one. Each mode gets its own
-# try: on MTS Wi-Fi only fronting gets through, and upstream tries the other mode
-# first after every core start (pool.reset() clears try_fronting_first) and waits
-# 8 s for it.
-_ON_DEMAND_FIRST_TRY_S = 7.0
+# 3-6 s through a slow VPN: the mode that last worked gets long enough for that,
+# a mode nothing has shown to work a shorter try, and the budget keeps Telegram
+# from waiting much longer than before for the fallback when both fail. Each
+# mode gets its own try: on MTS Wi-Fi only fronting gets through, and upstream
+# tries the other mode first after every core start (pool.reset() clears
+# try_fronting_first) and waits 8 s for it.
+_ON_DEMAND_FIRST_TRY_S = 6.0
 _ON_DEMAND_TRY_S = 4.0
-_ON_DEMAND_BUDGET_S = 11.0
+_ON_DEMAND_BUDGET_S = 10.0
 # The SNI upstream's pool fronts with (pool._connect_one).
 _FRONTING_SNI = "sprinthost.ru"
 # Per route (dc, is_media, is_test_dc), reset at each core start: when a direct
@@ -542,7 +543,8 @@ async def _ws_on_demand(pool: Any, dc: int, is_media: bool,
     """A direct WebSocket for one connection, or None for the fallback.
 
     Tries each domain with the mode that last worked first, for up to
-    _ON_DEMAND_FIRST_TRY_S, then the other mode for up to _ON_DEMAND_TRY_S, all
+    _ON_DEMAND_FIRST_TRY_S (_ON_DEMAND_TRY_S while no mode has worked yet), then
+    the other mode for up to _ON_DEMAND_TRY_S, all
     of them up to _ON_DEMAND_BUDGET_S. When every try
     fails the route backs off, so on a network that blocks it the next
     connections go straight to the fallback; not when another connection
@@ -556,10 +558,13 @@ async def _ws_on_demand(pool: Any, dc: int, is_media: bool,
     if started < max(pool._refill_after.get(key, 0), _on_demand_after.get(key, 0)):
         return None
     path = WS_PATH_TEST if is_test_dc else WS_PATH
-    first = _last_fronted if _last_fronted is not None else pool.try_fronting_first
+    if _last_fronted is not None:
+        first, first_try_s = _last_fronted, _ON_DEMAND_FIRST_TRY_S
+    else:  # upstream's default after pool.reset(): nothing says it works
+        first, first_try_s = pool.try_fronting_first, _ON_DEMAND_TRY_S
     deadline = started + _ON_DEMAND_BUDGET_S
     for domain in ws_domains(dc, is_media):
-        for fronted, try_s in ((first, _ON_DEMAND_FIRST_TRY_S),
+        for fronted, try_s in ((first, first_try_s),
                                (not first, _ON_DEMAND_TRY_S)):
             left = deadline - time.monotonic()
             if left <= 0:

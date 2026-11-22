@@ -923,17 +923,37 @@ def test_the_mode_that_worked_gets_a_longer_try(monkeypatch):
     """Through a slow VPN a working route takes several seconds: the mode
     that last worked gets as long as upstream's pool would give it."""
     ws_pool = _fresh_routes(monkeypatch)
+    monkeypatch.setattr(android_entry, "_ON_DEMAND_FIRST_TRY_S", 0.5)
     monkeypatch.setattr(android_entry, "_last_fronted", True)
     opened = _PooledWs()
     tries = []
 
     async def slow(target_ip, domain, path, fronted):
         tries.append(fronted)
-        await asyncio.sleep(0.07)  # longer than the other mode's try
+        await asyncio.sleep(0.15)  # longer than the other mode's 0.05 s try
         return opened
     monkeypatch.setattr(android_entry, "_open_ws", slow)
     assert asyncio.run(ws_pool.get(2, False)) is opened
     assert tries == [True]
+
+
+def test_an_unproven_mode_gets_the_short_try(monkeypatch):
+    """Before any mode has worked, upstream's default (unfronted after a core
+    start) is only a guess: on MTS Wi-Fi it hangs, and fronting must not wait
+    the long try for it."""
+    ws_pool = _fresh_routes(monkeypatch)
+    monkeypatch.setattr(android_entry, "_ON_DEMAND_FIRST_TRY_S", 3600)
+    opened = _PooledWs()
+    tries = []
+
+    async def open_ws(target_ip, domain, path, fronted):
+        tries.append(fronted)
+        if not fronted:
+            await asyncio.sleep(3600)
+        return opened
+    monkeypatch.setattr(android_entry, "_open_ws", open_ws)
+    assert asyncio.run(asyncio.wait_for(ws_pool.get(2, False), 5)) is opened
+    assert tries == [False, True]
 
 
 def test_pool_hit_teaches_the_mode_to_on_demand(monkeypatch):
