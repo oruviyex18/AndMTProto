@@ -34,7 +34,7 @@ import sys
 import threading
 import time
 import weakref
-from typing import Any, Deque, Dict, List, Optional, Tuple
+from typing import Any, Deque, Dict, List, Optional, Set, Tuple
 
 from proxy import __version__
 from proxy.balancer import balancer
@@ -420,13 +420,36 @@ async def _sample_connections() -> None:
 # connection opens its WebSocket itself (_ws_on_demand). The size the user set:
 _pool_size = DEFAULT_CONFIG["pool_size"]
 _pool_paused = False
-# How long a connection waits for its own WebSocket while the pool is paused
-# before it takes the fallback. A working route opens one in well under a second;
-# upstream's pool waits 7-8 s per domain and mode, 30 s in all where it's blocked.
-_ON_DEMAND_TIMEOUT_S = 5.0
+# One try (a domain, with or without fronting) of an on-demand WebSocket, and all
+# of them for one connection. A working route opens in well under a second, 3-6 s
+# through a slow VPN. Each mode gets its own try: on MTS Wi-Fi only fronting gets
+# through, and upstream tries the other mode first after every core start
+# (pool.reset() clears try_fronting_first) and waits 8 s for it.
+_ON_DEMAND_TRY_S = 4.0
+_ON_DEMAND_BUDGET_S = 9.0
+# The SNI upstream's pool fronts with (pool._connect_one).
+_FRONTING_SNI = "sprinthost.ru"
+# Per route (dc, is_media, is_test_dc), reset at each core start: when a direct
+# WebSocket last opened (a pool hit or on demand), and the back-off after
+# on-demand attempts where every try failed. The pool's own back-off stays its
+# own, so failures with the screen off don't hold its refills back afterwards.
+_route_ok_at: Dict[Tuple[int, bool, bool], float] = {}
+_on_demand_failures: Dict[Tuple[int, bool, bool], int] = {}
+_on_demand_after: Dict[Tuple[int, bool, bool], float] = {}
+# Whether fronting was what last worked, kept across core starts unlike the pool's.
+_last_fronted: Optional[bool] = None
 # One lock per event loop: pause and resume changes apply one at a time.
 _pool_locks: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]" = (
     weakref.WeakKeyDictionary())
+# Pause and resume tasks: the loop keeps only weak references to tasks.
+_pool_tasks: Set["asyncio.Task[None]"] = set()
+
+
+def _reset_on_demand() -> None:
+    """A new core usually means a new network: what worked before says nothing."""
+    _route_ok_at.clear()
+    _on_demand_failures.clear()
+    _on_demand_after.clear()
 
 
 def set_pool_paused(paused: bool) -> None:
@@ -456,7 +479,9 @@ def set_pool_paused(paused: bool) -> None:
         # A core that is stopping gets no new task; the next one starts with
         # the current state (_apply_config).
         if not stop_ev.is_set():
-            asyncio.ensure_future(_apply_pool_state())
+            task = asyncio.ensure_future(_apply_pool_state())
+            _pool_tasks.add(task)
+            task.add_done_callback(_pool_tasks.discard)
     try:
         loop.call_soon_threadsafe(schedule)
     except RuntimeError:
@@ -497,52 +522,91 @@ async def _pause_pool(pool: Any) -> None:
     await asyncio.gather(*closing, return_exceptions=True)
 
 
+async def _open_ws(target_ip: str, domain: str, path: str, fronted: bool) -> RawWebSocket:
+    """One WebSocket the way upstream's pool opens it (pool._connect_one)."""
+    return await RawWebSocket.connect(
+        target_ip, domain, timeout=_ON_DEMAND_TRY_S, path=path,
+        sni=_FRONTING_SNI if fronted else None)
+
+
 async def _ws_on_demand(pool: Any, dc: int, is_media: bool,
                         is_test_dc: bool) -> Optional[RawWebSocket]:
-    """A direct WebSocket for one connection while the pool is paused, or None
-    for the fallback. A failure backs the route off like a failed refill, so
-    on a network that blocks it the next connections go straight to the
-    fallback instead of waiting _ON_DEMAND_TIMEOUT_S each."""
+    """A direct WebSocket for one connection, or None for the fallback.
+
+    Tries each domain with the mode that last worked first, each try up to
+    _ON_DEMAND_TRY_S, all of them up to _ON_DEMAND_BUDGET_S. When every try
+    fails the route backs off, so on a network that blocks it the next
+    connections go straight to the fallback; not when another connection
+    opened one on it meanwhile. Skipped while either back-off runs."""
+    global _last_fronted
     target_ip = proxy_config.dc_redirects.get(dc)
     if not target_ip:
         return None
     key = (dc, is_media, is_test_dc)
-    if time.monotonic() < pool._refill_after.get(key, 0):
+    started = time.monotonic()
+    if started < max(pool._refill_after.get(key, 0), _on_demand_after.get(key, 0)):
         return None
     path = WS_PATH_TEST if is_test_dc else WS_PATH
-    try:
-        ws = await asyncio.wait_for(
-            pool._connect_one(target_ip, ws_domains(dc, is_media), path),
-            _ON_DEMAND_TIMEOUT_S)
-    except (asyncio.TimeoutError, OSError):
-        ws = None
-    if ws is not None:
-        pool._refill_failures.pop(key, None)
-        pool._refill_after.pop(key, None)
-        log.info("DC%d%s WebSocket opened on demand (pool paused)",
-                 dc, " media" if is_media else "")
-        return ws
-    failures = pool._refill_failures.get(key, 0) + 1
-    pool._refill_failures[key] = failures
-    pool._refill_after[key] = time.monotonic() + min(
-        pool.REFILL_BACKOFF_INITIAL * (2 ** min(failures - 1, 12)),
-        pool.REFILL_BACKOFF_MAX)
+    first = _last_fronted if _last_fronted is not None else pool.try_fronting_first
+    deadline = started + _ON_DEMAND_BUDGET_S
+    for domain in ws_domains(dc, is_media):
+        for fronted in (first, not first):
+            left = deadline - time.monotonic()
+            if left <= 0:
+                break
+            try:
+                ws = await asyncio.wait_for(_open_ws(target_ip, domain, path, fronted),
+                                            min(_ON_DEMAND_TRY_S, left))
+            except Exception as exc:
+                stats.ws_errors += 1
+                log.debug("On-demand WebSocket %s%s via %s (fronting=%s): %r",
+                          domain, path, target_ip, fronted, exc)
+                continue
+            if fronted:
+                stats.connections_fronting += 1
+            _last_fronted = pool.try_fronting_first = fronted
+            _route_ok_at[key] = time.monotonic()
+            _on_demand_failures.pop(key, None)
+            _on_demand_after.pop(key, None)
+            log.info("DC%d%s WebSocket opened on demand%s",
+                     dc, " media" if is_media else "",
+                     " (pool paused)" if _pool_paused else " (pool empty)")
+            return ws
+    if _route_ok_at.get(key, float("-inf")) < started:  # nobody got through meanwhile
+        _route_ok_at.pop(key, None)
+        failures = _on_demand_failures.get(key, 0) + 1
+        _on_demand_failures[key] = failures
+        _on_demand_after[key] = time.monotonic() + min(
+            pool.REFILL_BACKOFF_INITIAL * (2 ** min(failures - 1, 12)),
+            pool.REFILL_BACKOFF_MAX)
     return None
 
 
 def _install_on_demand_ws() -> None:
-    """Makes ws_pool.get() open a WebSocket itself while the pool is paused.
-    Upstream returns None for pool size 0, which sends every connection to the
-    fallback; a pool size of 0 that the user set still does."""
+    """Makes ws_pool.get() open a WebSocket itself when it has none to give:
+    always while the pool is paused, and with the screen on once the route has
+    worked on this core (a burst emptied the pool, or the screen just came on
+    and the refill isn't done). Upstream returns None then, which sends the
+    connection to the fallback. A pool size of 0 that the user set still means
+    no direct WebSockets."""
     if getattr(ws_pool, "_andmtproto_on_demand", False):
         return
     upstream_get = ws_pool.get
 
     async def get(dc: int, is_media: bool, *, is_test_dc: bool = False
                   ) -> Optional[RawWebSocket]:
-        if _pool_paused and _pool_size:
+        if not _pool_size:
+            return await upstream_get(dc, is_media, is_test_dc=is_test_dc)
+        if _pool_paused:
             return await _ws_on_demand(ws_pool, dc, is_media, is_test_dc)
-        return await upstream_get(dc, is_media, is_test_dc=is_test_dc)
+        ws = await upstream_get(dc, is_media, is_test_dc=is_test_dc)
+        key = (dc, is_media, is_test_dc)
+        if ws is not None:
+            _route_ok_at[key] = time.monotonic()
+            return ws
+        if key in _route_ok_at:
+            return await _ws_on_demand(ws_pool, dc, is_media, is_test_dc)
+        return None
 
     ws_pool.get = get
     ws_pool._andmtproto_on_demand = True
@@ -694,6 +758,7 @@ def start(cfg_json: str, log_dir: str) -> Optional[str]:
         else:
             log.info("AndMTProto: plain TLS, no blocking bypass")
         _reset_stats(time.monotonic())
+        _reset_on_demand()
         log.info("Starting proxy on %s:%d ...",
                  proxy_config.host, proxy_config.port)
         if not _is_loopback(proxy_config.host):

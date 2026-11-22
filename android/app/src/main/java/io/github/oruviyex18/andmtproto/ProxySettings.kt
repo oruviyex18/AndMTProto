@@ -230,5 +230,6 @@ class SettingsStore(context: Context) {
         const val KEY = "config"
         const val KEY_AUTO_PORT = "auto_port"
         /** Up to 1.11.4-android.10: ProxyService had turned "no TLS" on by itself. Read once in [load]. */
-        const val KEY_NO_SECURE_AUTO = "no_secure_auto"    }
+        const val KEY_NO_SECURE_AUTO = "no_secure_auto"
+    }
 }
