@@ -5,6 +5,7 @@ import re
 import os
 import socket
 import sys
+import threading
 import time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -582,12 +583,18 @@ def _unpause_pool_after_test():
     android_entry.set_pool_paused(False)
 
 
-def test_core_started_with_the_screen_off_has_no_pool(tmp_path, monkeypatch):
+def _record_pool_changes(monkeypatch):
+    """Replaces _apply_pool_state; returns the _pool_paused values it ran with."""
     calls = []
 
-    async def record(paused):
-        calls.append(paused)
-    monkeypatch.setattr(android_entry, "_set_pools_paused", record)
+    async def record():
+        calls.append(android_entry._pool_paused)
+    monkeypatch.setattr(android_entry, "_apply_pool_state", record)
+    return calls
+
+
+def test_core_started_with_the_screen_off_has_no_pool(tmp_path, monkeypatch):
+    calls = _record_pool_changes(monkeypatch)
     android_entry.set_pool_paused(True)  # before start, as ProxyService does
     cfg = _cfg(pool_size=2)
     port = json.loads(cfg)["port"]
@@ -607,11 +614,7 @@ def test_core_started_with_the_screen_off_has_no_pool(tmp_path, monkeypatch):
 
 
 def test_pool_size_zero_is_never_paused_or_resumed(tmp_path, monkeypatch):
-    calls = []
-
-    async def record(paused):
-        calls.append(paused)
-    monkeypatch.setattr(android_entry, "_set_pools_paused", record)
+    calls = _record_pool_changes(monkeypatch)
     cfg = _cfg(pool_size=0)
     port = json.loads(cfg)["port"]
     try:
@@ -623,6 +626,36 @@ def test_pool_size_zero_is_never_paused_or_resumed(tmp_path, monkeypatch):
         assert calls == [] and android_entry.proxy_config.pool_size == 0
     finally:
         android_entry.stop()
+        _unpause_pool_after_test()
+
+
+def test_no_pool_change_reaches_a_stopping_core(monkeypatch):
+    class _Loop:
+        def __init__(self):
+            self.callbacks = []
+
+        def call_soon_threadsafe(self, callback):
+            self.callbacks.append(callback)
+
+    class _ClosedLoop:
+        def call_soon_threadsafe(self, callback):
+            raise RuntimeError("Event loop is closed")
+
+    calls = _record_pool_changes(monkeypatch)
+    monkeypatch.setattr(android_entry, "_pool_size", 4)
+    stopping = threading.Event()
+    stopping.set()
+    loop = _Loop()
+    try:
+        monkeypatch.setattr(android_entry, "_async_stop", (loop, stopping))
+        android_entry.set_pool_paused(True)
+        for callback in loop.callbacks:
+            callback()  # runs in the loop: the core is stopping, so no task
+        assert loop.callbacks and calls == []
+        monkeypatch.setattr(android_entry, "_async_stop", (_ClosedLoop(), stopping))
+        android_entry.set_pool_paused(False)  # no error, no coroutine left unawaited
+    finally:
+        monkeypatch.setattr(android_entry, "_async_stop", None)
         _unpause_pool_after_test()
 
 
@@ -665,5 +698,93 @@ def test_resume_warms_up_both_pools(monkeypatch):
         async def warmup(name=name):
             warmed.append(name)
         monkeypatch.setattr(getattr(pool, name), "warmup", warmup)
-    asyncio.run(android_entry._set_pools_paused(False))
+    monkeypatch.setattr(android_entry, "_pool_paused", False)
+    asyncio.run(android_entry._apply_pool_state())
     assert warmed == ["ws_pool", "cf_worker_pool"]
+
+
+def test_resume_right_after_a_pause_keeps_its_websockets(monkeypatch):
+    """The screen comes on while the pause still waits for a refill to stop:
+    the resume runs after it, so the pause can't close what the resume pooled."""
+    from proxy import pool
+    order = []
+
+    async def slow_pause(p):
+        order.append("pause starts")
+        await asyncio.sleep(0.05)
+        order.append("pause ends")
+
+    async def warmup():
+        order.append("warmup")
+    monkeypatch.setattr(android_entry, "_pause_pool", slow_pause)
+    monkeypatch.setattr(pool.ws_pool, "warmup", warmup)
+    monkeypatch.setattr(pool.cf_worker_pool, "warmup", warmup)
+
+    async def scenario():
+        monkeypatch.setattr(android_entry, "_pool_paused", True)
+        pause = asyncio.ensure_future(android_entry._apply_pool_state())
+        await asyncio.sleep(0.01)  # the pause is under way
+        monkeypatch.setattr(android_entry, "_pool_paused", False)
+        resume = asyncio.ensure_future(android_entry._apply_pool_state())
+        await asyncio.gather(pause, resume)
+    asyncio.run(scenario())
+    assert order[-2:] == ["warmup", "warmup"]
+    assert order.index("pause ends") < order.index("warmup")
+
+
+def test_paused_pool_opens_websockets_on_demand(monkeypatch):
+    """With the pool paused a connection still gets a direct WebSocket; without
+    this, upstream's get() returns None for pool size 0 and every connection
+    takes the CF/TCP fallback."""
+    from proxy import pool
+    opened = _PooledWs()
+    tries = []
+
+    async def connect_one(target_ip, domains, path):
+        tries.append((target_ip, path))
+        return opened
+    monkeypatch.setattr(pool.ws_pool, "_connect_one", connect_one)
+    monkeypatch.setattr(android_entry, "_pool_paused", True)
+    monkeypatch.setattr(android_entry, "_pool_size", 4)
+    monkeypatch.setattr(android_entry.proxy_config, "pool_size", 0)
+    monkeypatch.setattr(android_entry.proxy_config, "dc_redirects", {2: "149.154.167.220"})
+    monkeypatch.setattr(pool.ws_pool, "_refill_after", {})
+    monkeypatch.setattr(pool.ws_pool, "_refill_failures", {})
+    assert asyncio.run(pool.ws_pool.get(2, False)) is opened
+    assert tries == [("149.154.167.220", "/apiws")]
+    assert asyncio.run(pool.ws_pool.get(4, False)) is None  # no route to DC4 configured
+    assert len(tries) == 1
+
+
+def test_blocked_route_backs_off_instead_of_delaying_every_connection(monkeypatch):
+    from proxy import pool
+    tries = []
+
+    async def blocked(target_ip, domains, path):
+        tries.append(target_ip)
+        await asyncio.sleep(3600)  # a route that never answers
+    monkeypatch.setattr(pool.ws_pool, "_connect_one", blocked)
+    monkeypatch.setattr(android_entry, "_ON_DEMAND_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(android_entry, "_pool_paused", True)
+    monkeypatch.setattr(android_entry, "_pool_size", 4)
+    monkeypatch.setattr(android_entry.proxy_config, "dc_redirects", {2: "149.154.167.220"})
+    monkeypatch.setattr(pool.ws_pool, "_refill_after", {})
+    monkeypatch.setattr(pool.ws_pool, "_refill_failures", {})
+    assert asyncio.run(pool.ws_pool.get(2, True)) is None
+    # The next connection doesn't wait: it goes straight to the fallback.
+    assert asyncio.run(pool.ws_pool.get(2, True)) is None
+    assert tries == ["149.154.167.220"]
+    assert pool.ws_pool._refill_failures == {(2, True, False): 1}
+
+
+def test_pool_size_zero_set_by_the_user_still_skips_websockets(monkeypatch):
+    from proxy import pool
+
+    async def connect_one(*args):
+        raise AssertionError("pool size 0 means no direct WebSockets")
+    monkeypatch.setattr(pool.ws_pool, "_connect_one", connect_one)
+    monkeypatch.setattr(android_entry, "_pool_paused", True)
+    monkeypatch.setattr(android_entry, "_pool_size", 0)
+    monkeypatch.setattr(android_entry.proxy_config, "pool_size", 0)
+    monkeypatch.setattr(android_entry.proxy_config, "dc_redirects", {2: "149.154.167.220"})
+    assert asyncio.run(pool.ws_pool.get(2, False)) is None

@@ -33,6 +33,7 @@ import struct
 import sys
 import threading
 import time
+import weakref
 from typing import Any, Deque, Dict, List, Optional, Tuple
 
 from proxy import __version__
@@ -41,12 +42,13 @@ from proxy.config import (CFPROXY_DEFAULT_DOMAINS, coerce_domain_list,
                           parse_dc_ip_list, proxy_config)
 from proxy._aes import Cipher, algorithms, modes
 from proxy import raw_websocket
+from proxy.pool import ws_pool
 from proxy.raw_websocket import RawWebSocket
 from proxy.stats import stats
 from proxy import tg_ws_proxy
 from proxy import utils as proxy_utils
 from proxy.tg_ws_proxy import _run
-from proxy.utils import DomainCensorFilter, get_link_host
+from proxy.utils import WS_PATH, WS_PATH_TEST, DomainCensorFilter, get_link_host, ws_domains
 
 import tls_bypass
 
@@ -60,8 +62,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "verbose": False,
     "log_max_mb": 5,
     "buf_kb": 256,
-    # Upstream's default is 4; see _pool_paused for what each pooled WebSocket costs.
-    "pool_size": 2,
+    "pool_size": 4,
     "cfproxy": True,
     "h2": True,
     "cfproxy_user_domain_enabled": False,
@@ -409,25 +410,35 @@ async def _sample_connections() -> None:
 
 # The core keeps pool_size WebSockets to each of DC2, DC4 and their media servers
 # open ahead of time (upstream pool.py), from the start on, whether or not Telegram
-# uses the proxy, and replaces them every 2 minutes: with upstream's 4, 16 TLS
+# uses the proxy, and replaces them every 2 minutes: with the default 4, 16 TLS
 # connections, 8 new ones a minute, which keep the radio busy all day. Where the
 # network blocks them, each refill fails (432 failed connections in 11 minutes on
-# Beeline Wi-Fi, 22 Nov 2026, with Telegram closed). They only spare a new
-# connection its handshake, which nobody waits for with the screen off, so
-# ProxyService pauses the pool then (set_pool_paused). The size the user set.
+# Beeline Wi-Fi, 22 Nov 2026, with Telegram closed). The pool is also the core's
+# only way to a direct WebSocket: when ws_pool.get() has none, the connection goes
+# to the CF Worker, CF proxy or TCP fallback. So ProxyService pauses it with the
+# screen off (set_pool_paused): nothing is opened ahead of time, and a new
+# connection opens its WebSocket itself (_ws_on_demand). The size the user set:
 _pool_size = DEFAULT_CONFIG["pool_size"]
 _pool_paused = False
+# How long a connection waits for its own WebSocket while the pool is paused
+# before it takes the fallback. A working route opens one in well under a second;
+# upstream's pool waits 7-8 s per domain and mode, 30 s in all where it's blocked.
+_ON_DEMAND_TIMEOUT_S = 5.0
+# One lock per event loop: pause and resume changes apply one at a time.
+_pool_locks: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]" = (
+    weakref.WeakKeyDictionary())
 
 
 def set_pool_paused(paused: bool) -> None:
     """Pauses the core's WebSocket pools (screen off) or fills them again.
 
-    Paused, new connections open on demand as with a pool size of 0. Pausing
-    stops the refills under way and closes the idle pooled WebSockets, and
-    keeps each pool's back-off after failed refills, so a network that blocks
-    them isn't tried again at every screen-on. Also works before start():
-    the next core starts paused. Review _pause_pool whenever upstream changes
-    pool.py.
+    Paused, the pools open nothing ahead of time; a new connection opens its
+    own direct WebSocket (_ws_on_demand) and CF Worker connection (upstream
+    already does that one on demand). Pausing stops the refills under way and
+    closes the idle pooled WebSockets, and keeps each pool's back-off after
+    failed refills, so a network that blocks them isn't tried again at every
+    screen-on. Also works before start(): the next core starts paused. Review
+    _pause_pool and _ws_on_demand whenever upstream changes pool.py.
     """
     global _pool_paused
     with _lock:
@@ -439,23 +450,36 @@ def set_pool_paused(paused: bool) -> None:
     if state is None or not _pool_size:
         return
     log.info("AndMTProto: WebSocket pool %s", "paused (screen off)" if paused else "resumed")
+    loop, stop_ev = state
+
+    def schedule() -> None:
+        # A core that is stopping gets no new task; the next one starts with
+        # the current state (_apply_config).
+        if not stop_ev.is_set():
+            asyncio.ensure_future(_apply_pool_state())
     try:
-        asyncio.run_coroutine_threadsafe(_set_pools_paused(paused), state[0])
+        loop.call_soon_threadsafe(schedule)
     except RuntimeError:
         pass  # loop already closed
 
 
-async def _set_pools_paused(paused: bool) -> None:
-    from proxy.pool import cf_worker_pool, ws_pool
-    for pool in (ws_pool, cf_worker_pool):
-        try:
-            if paused:
-                await _pause_pool(pool)
-            else:
-                await pool.warmup()  # it skips keys still backing off
-        except Exception as exc:  # pool internals changed upstream
-            log.warning("Cannot %s the WebSocket pool: %r",
-                        "pause" if paused else "resume", exc)
+async def _apply_pool_state() -> None:
+    """Pauses or fills the pools as _pool_paused says when it runs: changes
+    queued behind each other apply one at a time, and the last one wins, so a
+    resume never has its fresh WebSockets closed by an earlier pause."""
+    from proxy.pool import cf_worker_pool
+    lock = _pool_locks.setdefault(asyncio.get_running_loop(), asyncio.Lock())
+    async with lock:
+        paused = _pool_paused
+        for pool in (ws_pool, cf_worker_pool):
+            try:
+                if paused:
+                    await _pause_pool(pool)
+                else:
+                    await pool.warmup()  # it skips keys still backing off
+            except Exception as exc:  # pool internals changed upstream
+                log.warning("Cannot %s the WebSocket pool: %r",
+                            "pause" if paused else "resume", exc)
 
 
 async def _pause_pool(pool: Any) -> None:
@@ -471,6 +495,60 @@ async def _pause_pool(pool: Any) -> None:
     for bucket in pool._idle.values():
         bucket.clear()
     await asyncio.gather(*closing, return_exceptions=True)
+
+
+async def _ws_on_demand(pool: Any, dc: int, is_media: bool,
+                        is_test_dc: bool) -> Optional[RawWebSocket]:
+    """A direct WebSocket for one connection while the pool is paused, or None
+    for the fallback. A failure backs the route off like a failed refill, so
+    on a network that blocks it the next connections go straight to the
+    fallback instead of waiting _ON_DEMAND_TIMEOUT_S each."""
+    target_ip = proxy_config.dc_redirects.get(dc)
+    if not target_ip:
+        return None
+    key = (dc, is_media, is_test_dc)
+    if time.monotonic() < pool._refill_after.get(key, 0):
+        return None
+    path = WS_PATH_TEST if is_test_dc else WS_PATH
+    try:
+        ws = await asyncio.wait_for(
+            pool._connect_one(target_ip, ws_domains(dc, is_media), path),
+            _ON_DEMAND_TIMEOUT_S)
+    except (asyncio.TimeoutError, OSError):
+        ws = None
+    if ws is not None:
+        pool._refill_failures.pop(key, None)
+        pool._refill_after.pop(key, None)
+        log.info("DC%d%s WebSocket opened on demand (pool paused)",
+                 dc, " media" if is_media else "")
+        return ws
+    failures = pool._refill_failures.get(key, 0) + 1
+    pool._refill_failures[key] = failures
+    pool._refill_after[key] = time.monotonic() + min(
+        pool.REFILL_BACKOFF_INITIAL * (2 ** min(failures - 1, 12)),
+        pool.REFILL_BACKOFF_MAX)
+    return None
+
+
+def _install_on_demand_ws() -> None:
+    """Makes ws_pool.get() open a WebSocket itself while the pool is paused.
+    Upstream returns None for pool size 0, which sends every connection to the
+    fallback; a pool size of 0 that the user set still does."""
+    if getattr(ws_pool, "_andmtproto_on_demand", False):
+        return
+    upstream_get = ws_pool.get
+
+    async def get(dc: int, is_media: bool, *, is_test_dc: bool = False
+                  ) -> Optional[RawWebSocket]:
+        if _pool_paused and _pool_size:
+            return await _ws_on_demand(ws_pool, dc, is_media, is_test_dc)
+        return await upstream_get(dc, is_media, is_test_dc=is_test_dc)
+
+    ws_pool.get = get
+    ws_pool._andmtproto_on_demand = True
+
+
+_install_on_demand_ws()
 
 
 async def _run_until_stopped(stop_ev: asyncio.Event) -> None:
