@@ -4,13 +4,16 @@ import android.app.Notification
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.Network
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -77,6 +80,18 @@ class ProxyService : Service() {
         }
     }
 
+    /** Pauses the WebSocket pool a while after the screen goes off; see [onScreen]. */
+    private var poolPause: Job? = null
+
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.action) {
+                Intent.ACTION_SCREEN_ON -> onScreen(on = true)
+                Intent.ACTION_SCREEN_OFF -> onScreen(on = false)
+            }
+        }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -85,6 +100,33 @@ class ProxyService : Service() {
             connectivity.registerDefaultNetworkCallback(networkCallback)
         } catch (e: RuntimeException) {
             Log.w(TAG, "Cannot follow network changes", e)
+        }
+        // Before the first start, so a core started with the screen off starts paused.
+        ProxyCore.setPoolPaused(!getSystemService(PowerManager::class.java).isInteractive)
+        // Screen broadcasts come only from the system, which still reaches a not-exported receiver.
+        val screen = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+        }
+        ContextCompat.registerReceiver(this, screenReceiver, screen, ContextCompat.RECEIVER_NOT_EXPORTED)
+    }
+
+    /**
+     * The core's pool of WebSockets opened ahead of time only spares a new
+     * connection its handshake, and renews them every 2 minutes, which keeps the
+     * radio busy (see android_entry._pool_paused). With the screen off for
+     * [POOL_PAUSE_DELAY_MS] it pauses; with the screen on it fills again at once.
+     * The delay keeps a glance at the lock screen from closing and reopening it.
+     */
+    private fun onScreen(on: Boolean) {
+        poolPause?.cancel()
+        if (on) {
+            ProxyCore.setPoolPaused(false)
+        } else {
+            poolPause = scope.launch {
+                delay(POOL_PAUSE_DELAY_MS)
+                ProxyCore.setPoolPaused(true)
+            }
         }
     }
 
@@ -118,6 +160,7 @@ class ProxyService : Service() {
         } catch (e: RuntimeException) {
             Log.w(TAG, "Cannot stop following network changes", e)
         }
+        unregisterReceiver(screenReceiver)
         scope.cancel()
         ProxyCore.setCfCheck(null)
         ProxyCore.stopInBackground()
@@ -442,6 +485,7 @@ class ProxyService : Service() {
         private const val NETWORK_SWITCH_SETTLE_MS = 15_000L
         private const val AUTO_RESTART_COOLDOWN_MS = 10 * 60_000L
         private const val CF_FAILURE_RECHECK_MS = 10 * 60_000L
+        private const val POOL_PAUSE_DELAY_MS = 60_000L
         private const val NEVER = Long.MIN_VALUE / 2
         private const val ACTION_START = "start"
         private const val ACTION_RESTART = "restart"

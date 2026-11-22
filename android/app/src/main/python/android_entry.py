@@ -7,7 +7,8 @@ Review this file whenever upstream changes ProxyConfig, _run() or the
 tray lifecycle code.
 
 Kotlin (ProxyCore.kt) calls only start(), stop(), status(), note(),
-probe_cf(), check_tls_strategy() and proxy_link();
+probe_cf(), forget_cf_pick(), set_pool_paused(), check_tls_strategy() and
+proxy_link();
 config and status travel as JSON strings. Errors reach Kotlin as
 {"code", "detail", "suggested_port"} so the UI can show them in its own
 language. Codes: bad_secret, bad_port, bad_dc_ip, bad_fake_tls,
@@ -59,7 +60,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "verbose": False,
     "log_max_mb": 5,
     "buf_kb": 256,
-    "pool_size": 4,
+    # Upstream's default is 4; see _pool_paused for what each pooled WebSocket costs.
+    "pool_size": 2,
     "cfproxy": True,
     "h2": True,
     "cfproxy_user_domain_enabled": False,
@@ -211,7 +213,9 @@ def _apply_config(cfg: Dict[str, Any]) -> None:
     pc.secret = secret
     pc.dc_redirects = dc_redirects
     pc.buffer_size = max(4, int(cfg["buf_kb"])) * 1024
-    pc.pool_size = max(0, int(cfg["pool_size"]))
+    global _pool_size
+    _pool_size = max(0, int(cfg["pool_size"]))
+    pc.pool_size = 0 if _pool_paused else _pool_size
     pc.fallback_cfproxy = bool(cfg["cfproxy"])
     pc.cfproxy_h2_media = bool(cfg["h2"])
     user_domains = coerce_domain_list(cfg["cfproxy_user_domain"])
@@ -401,6 +405,72 @@ async def _sample_connections() -> None:
     while True:
         await asyncio.sleep(_SAMPLE_S)
         _record_sample(time.monotonic())
+
+
+# The core keeps pool_size WebSockets to each of DC2, DC4 and their media servers
+# open ahead of time (upstream pool.py), from the start on, whether or not Telegram
+# uses the proxy, and replaces them every 2 minutes: with upstream's 4, 16 TLS
+# connections, 8 new ones a minute, which keep the radio busy all day. Where the
+# network blocks them, each refill fails (432 failed connections in 11 minutes on
+# Beeline Wi-Fi, 22 Nov 2026, with Telegram closed). They only spare a new
+# connection its handshake, which nobody waits for with the screen off, so
+# ProxyService pauses the pool then (set_pool_paused). The size the user set.
+_pool_size = DEFAULT_CONFIG["pool_size"]
+_pool_paused = False
+
+
+def set_pool_paused(paused: bool) -> None:
+    """Pauses the core's WebSocket pools (screen off) or fills them again.
+
+    Paused, new connections open on demand as with a pool size of 0. Pausing
+    stops the refills under way and closes the idle pooled WebSockets, and
+    keeps each pool's back-off after failed refills, so a network that blocks
+    them isn't tried again at every screen-on. Also works before start():
+    the next core starts paused. Review _pause_pool whenever upstream changes
+    pool.py.
+    """
+    global _pool_paused
+    with _lock:
+        if paused == _pool_paused:
+            return
+        _pool_paused = paused
+        proxy_config.pool_size = 0 if paused else _pool_size
+        state = _async_stop
+    if state is None or not _pool_size:
+        return
+    log.info("AndMTProto: WebSocket pool %s", "paused (screen off)" if paused else "resumed")
+    try:
+        asyncio.run_coroutine_threadsafe(_set_pools_paused(paused), state[0])
+    except RuntimeError:
+        pass  # loop already closed
+
+
+async def _set_pools_paused(paused: bool) -> None:
+    from proxy.pool import cf_worker_pool, ws_pool
+    for pool in (ws_pool, cf_worker_pool):
+        try:
+            if paused:
+                await _pause_pool(pool)
+            else:
+                await pool.warmup()  # it skips keys still backing off
+        except Exception as exc:  # pool internals changed upstream
+            log.warning("Cannot %s the WebSocket pool: %r",
+                        "pause" if paused else "resume", exc)
+
+
+async def _pause_pool(pool: Any) -> None:
+    """Stops `pool`'s refills and closes its idle WebSockets. Its rotation tasks
+    end by themselves once they see pool_size 0; pool.reset() would also forget
+    the back-off after failed refills."""
+    refills = list(pool._refilling.values())
+    for task in refills:
+        task.cancel()  # its own finally closes what it opened and hadn't pooled
+    await asyncio.gather(*refills, return_exceptions=True)
+    closing = [pool._quiet_close(item[0])
+               for bucket in pool._idle.values() for item in bucket]
+    for bucket in pool._idle.values():
+        bucket.clear()
+    await asyncio.gather(*closing, return_exceptions=True)
 
 
 async def _run_until_stopped(stop_ev: asyncio.Event) -> None:
