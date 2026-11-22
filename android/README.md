@@ -10,6 +10,8 @@ listens on `127.0.0.1:1443`, and the Telegram app connects to it as an MTProto p
 |---|---|
 | `../proxy/` | Upstream core, copied into the APK at build time (`syncUpstreamProxy` task). **Never edit it here.** |
 | `app/src/main/python/android_entry.py` | Adapter: config mapping, start/stop thread, status, `tg://` link. Mirrors `utils/tray_common.py`. |
+| `app/src/main/python/ws_pool_control.py` | Pauses the core's WebSocket pool while the screen is off; WebSockets opened on demand meanwhile. |
+| `app/src/main/python/tls_bypass.py` | TLS-blocking bypass for the core's connections to CF and Telegram. |
 | `app/src/main/java/.../ProxyCore.kt` | Kotlin → Python calls. |
 | `app/src/main/java/.../ProxyService.kt` | Foreground service that owns the proxy thread, with notification actions. |
 | `app/src/main/java/.../MainActivity.kt` | Compose screen: status, start/stop, Telegram link, settings, logs. |
@@ -21,6 +23,7 @@ listens on `127.0.0.1:1443`, and the Telegram app connects to it as an MTProto p
 | `app/requirements.txt` | Python packages for the core, shared by Chaquopy and CI. |
 | `gradle/libs.versions.toml` | Versions of Gradle plugins and Android libraries. |
 | `tests/test_android_entry.py` | Desktop pytest for the adapter against the real `proxy/`. |
+| `tests/test_ws_pool_control.py`, `tests/test_tls_bypass.py` | Desktop pytest for the two modules above. |
 
 ## Build
 
@@ -110,13 +113,17 @@ When reviewing a sync PR:
    The TLS-blocking bypass (`tls_bypass.py`) hooks `asyncio.sslproto.SSLProtocol`, so it covers
    only TLS opened with `asyncio.open_connection(ssl=...)`; a CF or Telegram client that
    opens TLS another way needs its own hook. `test_tls_bypass.py` checks the hook on a real socket.
-4. **New import or version pin in `pyproject.toml` that `proxy/` uses:** add it to
+4. **`proxy/pool.py` changed:** `ws_pool_control.py` uses its internals (`_refilling`, `_idle`,
+   `_refill_after`, `try_fronting_first`, `_quiet_close`, `warmup()`) and wraps `ws_pool.get()`;
+   check `_pause_pool`, `_ws_on_demand` and `install()` still match, and run
+   `test_ws_pool_control.py`.
+5. **New import or version pin in `pyproject.toml` that `proxy/` uses:** add it to
    `app/requirements.txt` (Chaquopy and CI both install from it). A native package needs an
    Android wheel from Chaquopy's index.
-5. **`icon.ico` changed:** regenerate the launcher and notification icons with
+6. **`icon.ico` changed:** regenerate the launcher and notification icons with
    `pip install Pillow && python android/tools/make_icons.py`, then commit `android/app/src/main/res`.
-6. **Only desktop files changed** (`windows.py`, `ui/`, `utils/`, packaging): nothing to do.
-7. Install the APK, connect Telegram, and check that chats and media load. Then set the
+7. **Only desktop files changed** (`windows.py`, `ui/`, `utils/`, packaging): nothing to do.
+8. Install the APK, connect Telegram, and check that chats and media load. Then set the
    version as in [Releasing](#releasing) step 1 and merge with a merge commit (not squash),
    so upstream's commits stay in `main`'s history.
    `versionName` follows upstream's `__version__` automatically.

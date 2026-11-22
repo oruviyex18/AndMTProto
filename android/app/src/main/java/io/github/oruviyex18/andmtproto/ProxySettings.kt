@@ -28,7 +28,7 @@ data class ProxySettings(
     val port: Int = 1443,
     val secret: String = "",
     val dcIp: List<String> = listOf("2:149.154.167.220", "4:149.154.167.220"),
-    /** WebSockets per DC opened ahead of time, while the screen is on (see android_entry._pool_paused). */
+    /** WebSockets per DC opened ahead of time, while the screen is on (see ws_pool_control.py). */
     val poolSize: Int = 4,
     val bufKb: Int = 256,
     val cfproxy: Boolean = true,
