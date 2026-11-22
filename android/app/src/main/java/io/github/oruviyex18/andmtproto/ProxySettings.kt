@@ -28,7 +28,8 @@ data class ProxySettings(
     val port: Int = 1443,
     val secret: String = "",
     val dcIp: List<String> = listOf("2:149.154.167.220", "4:149.154.167.220"),
-    val poolSize: Int = 4,
+    /** WebSockets per DC opened ahead of time; upstream's default is 4 (see android_entry._pool_paused). */
+    val poolSize: Int = DEFAULT_POOL_SIZE,
     val bufKb: Int = 256,
     val cfproxy: Boolean = true,
     val h2: Boolean = true,
@@ -132,12 +133,21 @@ data class ProxySettings(
             )
         }
 
+        const val DEFAULT_POOL_SIZE = 2
+
+        /** The default up to 1.11.4-android.11; [SettingsStore.load] moves it to [DEFAULT_POOL_SIZE] once. */
+        const val OLD_DEFAULT_POOL_SIZE = 4
+
         fun newSecret(): String {
             val bytes = ByteArray(16).also { SecureRandom().nextBytes(it) }
             return bytes.joinToString("") { "%02x".format(it) }
         }
     }
 }
+
+/** The old default pool size becomes the new one; any other size was the user's choice. */
+internal fun ProxySettings.withNewPoolDefault(): ProxySettings =
+    if (poolSize == ProxySettings.OLD_DEFAULT_POOL_SIZE) copy(poolSize = ProxySettings.DEFAULT_POOL_SIZE) else this
 
 /** How the core connects to the CF proxy and CF workers. */
 enum class CfTransport {
@@ -200,6 +210,16 @@ class SettingsStore(context: Context) {
             prefs.edit { remove(KEY_NO_SECURE_AUTO) }
             save(settings)
         }
+        if (!prefs.getBoolean(KEY_POOL_DEFAULT_MOVED, false)) {
+            // Settings saved up to android.11 hold the old default even if nobody chose
+            // it. Once only (a fresh install too), so a 4 chosen later stays.
+            prefs.edit { putBoolean(KEY_POOL_DEFAULT_MOVED, true) }
+            val moved = settings.withNewPoolDefault()
+            if (json != null && moved != settings) {
+                settings = moved
+                save(settings)
+            }
+        }
         if (settings.secret.isNotBlank()) return settings
         return settings.copy(secret = ProxySettings.newSecret()).also(::save)
     }
@@ -230,5 +250,7 @@ class SettingsStore(context: Context) {
         const val KEY_AUTO_PORT = "auto_port"
         /** Up to 1.11.4-android.10: ProxyService had turned "no TLS" on by itself. Read once in [load]. */
         const val KEY_NO_SECURE_AUTO = "no_secure_auto"
+        /** Set once [load] moved a pool size of 4 (the old default) to 2. */
+        const val KEY_POOL_DEFAULT_MOVED = "pool_default_moved"
     }
 }

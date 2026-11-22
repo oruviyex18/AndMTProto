@@ -119,6 +119,21 @@ object ProxyCore {
         }
     }
 
+    /**
+     * Pauses the core's pool of WebSockets opened ahead of time, or fills it again
+     * (android_entry.set_pool_paused). Also before [start]: the core then starts
+     * paused. Runs in call order with [start] and [stop].
+     */
+    fun setPoolPaused(paused: Boolean) {
+        scope.launch {
+            try {
+                module.callAttr("set_pool_paused", paused)
+            } catch (e: Exception) {
+                Log.w(TAG, "Cannot pause or resume the WebSocket pool", e)
+            }
+        }
+    }
+
     /** Starts the proxy thread; returns the config error, or null once it is starting. */
     suspend fun start(context: Context, settings: ProxySettings): ProxyError? = withContext(dispatcher) {
         val logDir = logDir(context).absolutePath

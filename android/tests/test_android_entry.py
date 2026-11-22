@@ -576,3 +576,94 @@ def test_probe_request_is_req_pq_multi_for_dc2():
 def test_probe_cf_skipped_without_cf_proxy(monkeypatch):
     monkeypatch.setattr(android_entry.proxy_config, "fallback_cfproxy", False)
     assert json.loads(android_entry.probe_cf()) == {}
+
+
+def _unpause_pool_after_test():
+    android_entry.set_pool_paused(False)
+
+
+def test_core_started_with_the_screen_off_has_no_pool(tmp_path, monkeypatch):
+    calls = []
+
+    async def record(paused):
+        calls.append(paused)
+    monkeypatch.setattr(android_entry, "_set_pools_paused", record)
+    android_entry.set_pool_paused(True)  # before start, as ProxyService does
+    cfg = _cfg(pool_size=2)
+    port = json.loads(cfg)["port"]
+    try:
+        assert android_entry.start(cfg, str(tmp_path)) is None
+        assert _wait(lambda: _listening(port))
+        assert android_entry.proxy_config.pool_size == 0  # no warmup, so no network
+        android_entry.set_pool_paused(False)
+        assert android_entry.proxy_config.pool_size == 2
+        assert _wait(lambda: calls == [False])  # the running core fills its pools
+        android_entry.set_pool_paused(False)  # no change: nothing more to do
+        time.sleep(0.2)
+        assert calls == [False]
+    finally:
+        android_entry.stop()
+        _unpause_pool_after_test()
+
+
+def test_pool_size_zero_is_never_paused_or_resumed(tmp_path, monkeypatch):
+    calls = []
+
+    async def record(paused):
+        calls.append(paused)
+    monkeypatch.setattr(android_entry, "_set_pools_paused", record)
+    cfg = _cfg(pool_size=0)
+    port = json.loads(cfg)["port"]
+    try:
+        assert android_entry.start(cfg, str(tmp_path)) is None
+        assert _wait(lambda: _listening(port))
+        android_entry.set_pool_paused(True)
+        android_entry.set_pool_paused(False)
+        time.sleep(0.2)
+        assert calls == [] and android_entry.proxy_config.pool_size == 0
+    finally:
+        android_entry.stop()
+        _unpause_pool_after_test()
+
+
+class _PooledWs:
+    def __init__(self):
+        self.closed = False
+
+    async def close(self):
+        self.closed = True
+
+
+def test_pause_closes_idle_websockets_and_keeps_the_backoff():
+    from collections import deque
+    from proxy.pool import _CfWorkerPool, _WsPool
+
+    async def scenario(pool, key, item):
+        refill = asyncio.ensure_future(asyncio.sleep(3600))
+        pool._refilling[key] = refill
+        pool._idle[key] = deque([item])
+        backoff_until = time.monotonic() + 256
+        pool._refill_after[key] = backoff_until
+        await android_entry._pause_pool(pool)
+        assert refill.cancelled()
+        assert not pool._idle[key]
+        # Resuming then skips this key until its back-off ends: no burst at screen-on.
+        assert pool._refill_after[key] == backoff_until
+
+    ws = _PooledWs()
+    asyncio.run(scenario(_WsPool(), (2, False, False), (ws, time.monotonic())))
+    assert ws.closed
+    worker_ws = _PooledWs()
+    asyncio.run(scenario(_CfWorkerPool(), 2, (worker_ws, time.monotonic(), "w.example")))
+    assert worker_ws.closed
+
+
+def test_resume_warms_up_both_pools(monkeypatch):
+    from proxy import pool
+    warmed = []
+    for name in ("ws_pool", "cf_worker_pool"):
+        async def warmup(name=name):
+            warmed.append(name)
+        monkeypatch.setattr(getattr(pool, name), "warmup", warmup)
+    asyncio.run(android_entry._set_pools_paused(False))
+    assert warmed == ["ws_pool", "cf_worker_pool"]
