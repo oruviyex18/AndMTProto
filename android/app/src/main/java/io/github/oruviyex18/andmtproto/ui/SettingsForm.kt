@@ -33,6 +33,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import io.github.oruviyex18.andmtproto.ProxySettings
 import io.github.oruviyex18.andmtproto.R
+import io.github.oruviyex18.andmtproto.withWorkerDomain
 import io.github.oruviyex18.andmtproto.TlsStrategies
 import io.github.oruviyex18.andmtproto.isLoopbackHost
 
@@ -116,6 +117,14 @@ fun SettingsForm(draft: SettingsDraft, onChange: (SettingsDraft) -> Unit, onShow
         Toggle(s.cfWorkerEnabled, R.string.cf_worker_enabled) { v -> edit { copy(cfWorkerEnabled = v) } }
         if (s.cfWorkerEnabled) {
             Field(s.cfWorkerDomains, R.string.cf_worker_domains, Modifier.fillMaxWidth()) { v -> edit { copy(cfWorkerDomains = v) } }
+        }
+        var workerSetup by rememberSaveable { mutableStateOf(false) }
+        TextButton(onClick = { workerSetup = true }) { Text(stringResource(R.string.worker_setup_open)) }
+        if (workerSetup) {
+            WorkerSetupDialog(
+                onDismiss = { workerSetup = false },
+                onCreated = { domain -> edit { withWorkerDomain(domain) } },
+            )
         }
         if (s.cfproxy || s.cfUserDomainEnabled || s.cfWorkerEnabled) CfTransportSettings(s, ::edit)
         if (s.cfproxy && !s.cfUserDomainEnabled && !s.cfWorkerEnabled) CfHint()
