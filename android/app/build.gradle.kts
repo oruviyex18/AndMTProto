@@ -129,6 +129,11 @@ tasks.configureEach {
 }
 tasks.named("preBuild") { dependsOn(syncUpstreamProxy, syncWorkerScript) }
 
+// WorkerSetupTest checks the Worker script itself, wherever the tests run from.
+tasks.withType<Test>().configureEach {
+    systemProperty("andmtproto.workerScript", rootProject.file("cf-worker/worker.js").absolutePath)
+}
+
 dependencies {
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

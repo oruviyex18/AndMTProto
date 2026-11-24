@@ -4,6 +4,7 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class WorkerSetupTest {
     private class FakeCloudflare(
@@ -120,8 +121,14 @@ class WorkerSetupTest {
 
     @Test
     fun theBundledWorkerCarriesTheMarkerTheAppLooksFor() {
-        // Unit tests run in android/app; the asset is copied from android/cf-worker at build time.
-        val script = java.io.File("../cf-worker/worker.js").readText()
+        // Gradle passes the script's path (app/build.gradle.kts); runners that don't get the
+        // two usual working directories, android/app and the repository root.
+        val candidates = listOfNotNull(System.getProperty("andmtproto.workerScript"))
+            .plus(listOf("../cf-worker/worker.js", "android/cf-worker/worker.js"))
+            .map(::File)
+        val file = candidates.firstOrNull { it.isFile }
+            ?: throw AssertionError("android/cf-worker/worker.js not found; tried ${candidates.map { it.absolutePath }}")
+        val script = file.readText()
         assertTrue("worker.js must keep \"${WorkerSetup.SCRIPT_MARKER}\"", script.contains(WorkerSetup.SCRIPT_MARKER))
     }
 
