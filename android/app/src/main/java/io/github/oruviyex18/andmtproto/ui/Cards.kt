@@ -256,6 +256,29 @@ fun MiuiAutostartCard(dismissed: Boolean, onDismiss: () -> Unit) {
     }
 }
 
+/**
+ * The autostart list of Huawei, Honor, Oppo / Realme / OnePlus and Vivo / iQOO
+ * phones ([OemAutostart]), which stop background apps outside Android's battery
+ * optimisation. Its state can't be read, so the card stays until [onDismiss].
+ */
+@Composable
+fun OemAutostartCard(dismissed: Boolean, onDismiss: () -> Unit) {
+    val oem = oemAutostart ?: return
+    if (dismissed) return
+    val context = LocalContext.current
+    AttentionCard(
+        title = stringResource(R.string.card_autostart_title),
+        body = stringResource(oem.hint),
+        container = MaterialTheme.colorScheme.tertiaryContainer,
+        content = MaterialTheme.colorScheme.onTertiaryContainer,
+    ) {
+        TextButton(onClick = onDismiss) { Text(stringResource(R.string.card_done)) }
+        TextButton(onClick = { context.openOemAutostart(oem) }) {
+            Text(stringResource(R.string.miui_button))
+        }
+    }
+}
+
 /** Reads after each resume: MIUI applies a background-activity choice about 1 s after its screen closes. */
 private const val RECHECKS = 4
 private const val RECHECK_INTERVAL_MS = 1_000L

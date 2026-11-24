@@ -31,6 +31,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _update = MutableStateFlow(UpdateCheck.available(app))
     private val backgroundDone = DoneFlag(KEY_MIUI_BACKGROUND_DONE)
     private val autostartDone = DoneFlag(KEY_MIUI_AUTOSTART_DONE, initial = migrateMiuiDone(app))
+    private val oemAutostartFlag = DoneFlag(KEY_OEM_AUTOSTART_DONE)
 
     /** Edits survive rotation because they live here, not in the composable. */
     val draft: StateFlow<SettingsDraft> = _draft.asStateFlow()
@@ -52,6 +53,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** The user closed the MIUI background / Autostart card by hand (see [BatteryCard], [MiuiAutostartCard]). */
     val miuiBackgroundDone: StateFlow<Boolean> = backgroundDone.state
     val miuiAutostartDone: StateFlow<Boolean> = autostartDone.state
+
+    /** The user closed the autostart card of another phone maker ([OemAutostartCard]). */
+    val oemAutostartDone: StateFlow<Boolean> = oemAutostartFlag.state
 
     /** ProxyService may move the port on the first start (see SettingsStore.autoPort). */
     private val settingsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
@@ -152,6 +156,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun markMiuiAutostartDone() = autostartDone.set()
 
+    fun markOemAutostartDone() = oemAutostartFlag.set()
+
     /** A "the user closed this card" flag, kept in the ui prefs under [key]. */
     private inner class DoneFlag(private val key: String, initial: Boolean = uiPrefs.getBoolean(key, false)) {
         private val value = MutableStateFlow(initial)
@@ -204,6 +210,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         const val KEY_LINKED = "telegram_linked"
         const val KEY_MIUI_BACKGROUND_DONE = "miui_background_done"
         const val KEY_MIUI_AUTOSTART_DONE = "miui_autostart_done"
+        const val KEY_OEM_AUTOSTART_DONE = "oem_autostart_done"
         const val KEY_LEGACY_MIUI_DONE = "miui_done"
     }
 }
