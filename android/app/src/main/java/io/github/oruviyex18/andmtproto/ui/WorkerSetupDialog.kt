@@ -118,5 +118,6 @@ private fun failureText(error: WorkerSetup.Error): Int = when (error) {
     WorkerSetup.Error.NO_ACCOUNT -> R.string.worker_setup_no_account
     WorkerSetup.Error.NO_PERMISSION -> R.string.worker_setup_no_permission
     WorkerSetup.Error.NETWORK -> R.string.worker_setup_network
+    WorkerSetup.Error.NAME_TAKEN -> R.string.worker_setup_name_taken
     WorkerSetup.Error.API -> R.string.worker_setup_api
 }
