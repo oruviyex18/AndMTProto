@@ -54,7 +54,7 @@ android {
         applicationId = "io.github.oruviyex18.andmtproto"
         minSdk = 24
         targetSdk = 36
-        versionCode = 24
+        versionCode = 25
         versionName = "$upstreamVersion-android.$androidRevision"
 
         ndk {
