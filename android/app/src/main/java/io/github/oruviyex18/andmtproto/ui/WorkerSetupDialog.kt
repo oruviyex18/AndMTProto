@@ -54,6 +54,7 @@ internal fun WorkerSetupDialog(onDismiss: () -> Unit, onCreated: (String) -> Uni
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (created != null) {
                     Text(stringResource(R.string.worker_setup_done, created.domain))
+                    created.account?.let { Text(stringResource(R.string.worker_setup_account, it), style = MaterialTheme.typography.bodySmall) }
                     return@Column
                 }
                 Text(stringResource(R.string.worker_setup_steps), style = MaterialTheme.typography.bodyMedium)
@@ -90,9 +91,13 @@ internal fun WorkerSetupDialog(onDismiss: () -> Unit, onCreated: (String) -> Uni
                 TextButton(
                     enabled = !working && token.isNotBlank(),
                     onClick = {
+                        if (!WorkerSetup.isWellFormedToken(token)) {
+                            result = WorkerSetup.Result.Failed(WorkerSetup.Error.BAD_TOKEN)
+                            return@TextButton
+                        }
                         working = true
                         scope.launch {
-                            result = WorkerSetup.create(WorkerSetup.api(token), WorkerSetup.workerScript(context))
+                            result = WorkerSetup.create(WorkerSetup.api(token.trim()), WorkerSetup.workerScript(context))
                             if (result is WorkerSetup.Result.Created) token = ""
                             working = false
                         }

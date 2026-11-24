@@ -88,4 +88,26 @@ class WorkerSetupTest {
             .withWorkerDomain("andmtproto.alice.workers.dev")
         assertEquals("old.bob.workers.dev, ANDMTPROTO.alice.workers.dev", some.cfWorkerDomains)
     }
+
+    @Test
+    fun tokensThatCantGoIntoAHeaderAreRefusedUpFront() {
+        assertTrue(WorkerSetup.isWellFormedToken("  aB3_-xYz09  "))
+        assertEquals(false, WorkerSetup.isWellFormedToken(""))
+        assertEquals(false, WorkerSetup.isWellFormedToken("abc" + Char(0x200B) + "def")) // zero-width space
+        assertEquals(false, WorkerSetup.isWellFormedToken("ab" + Char(0x0441) + "d")) // Cyrillic letter
+        assertEquals(false, WorkerSetup.isWellFormedToken("ab cd"))
+    }
+
+    @Test
+    fun theAccountIsNamedWhenTheTokenReachesSeveral() {
+        val two = object : WorkerSetup.Api {
+            val cf = FakeCloudflare()
+            override fun call(method: String, path: String, contentType: String?, body: ByteArray?): Pair<Int, String> =
+                if (path.startsWith("/accounts?")) 200 to ("{\"success\":true,\"result\":[{\"id\":\"acc1\",\"name\":\"Work\"},{\"id\":\"acc2\",\"name\":\"Home\"}]}")
+                else cf.call(method, path, contentType, body)
+        }
+        assertEquals(WorkerSetup.Result.Created("andmtproto.alice.workers.dev", "Work"), WorkerSetup.createBlocking(two, "x"))
+        assertEquals(null, (WorkerSetup.createBlocking(FakeCloudflare(), "x") as WorkerSetup.Result.Created).account)
+    }
 }
+

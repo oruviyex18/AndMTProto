@@ -66,6 +66,7 @@
     <string name="worker_setup_working">Creating the Worker…</string>
     <string name="worker_setup_done">Worker created: %1$s\n\nTap “Use” to add the address to “CF Worker domains”. Then go back to the main screen: the settings are saved. Cloudflare may still be starting the Worker for the first few minutes.</string>
     <string name="worker_setup_use">Use</string>
+    <string name="worker_setup_account">The token reaches several Cloudflare accounts; the Worker was created in “%1$s”.</string>
     <string name="worker_setup_bad_token">Cloudflare didn’t accept the token: check it was copied in full and hasn’t been deleted.</string>
     <string name="worker_setup_no_account">The token can’t see your account: give it “Account” → “Account Settings” → “Read” (on the token page: “Edit” next to the token) and try again.</string>
     <string name="worker_setup_no_permission">The token lacks permissions. Create it from the “Edit Cloudflare Workers” template and add “Account” → “Account Settings” → “Read”.</string>

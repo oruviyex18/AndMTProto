@@ -31,7 +31,8 @@ object WorkerSetup {
     private const val COMPATIBILITY_DATE = "2025-01-01"
 
     sealed interface Result {
-        data class Created(val domain: String) : Result
+        /** [account] is named only when the token reaches several accounts. */
+        data class Created(val domain: String, val account: String? = null) : Result
         data class Failed(val error: Error, val detail: String? = null) : Result
     }
 
@@ -85,19 +86,34 @@ object WorkerSetup {
     fun workerScript(context: Context): String =
         context.assets.open(ASSET).bufferedReader().use { it.readText() }
 
+    /**
+     * Cloudflare's tokens are printable ASCII. Anything else (a zero-width space
+     * copied from a web page, a Cyrillic letter) can't go into an HTTP header:
+     * Android's HTTP client would throw IllegalArgumentException.
+     */
+    fun isWellFormedToken(token: String): Boolean {
+        val t = token.trim()
+        return t.isNotEmpty() && t.all { it in '!'..'~' }
+    }
+
     suspend fun create(api: Api, script: String): Result = withContext(Dispatchers.IO) {
         try {
             createBlocking(api, script)
         } catch (e: IOException) {
             Result.Failed(Error.NETWORK, e.message)
+        } catch (e: IllegalArgumentException) {
+            Result.Failed(Error.BAD_TOKEN) // a header value the HTTP client refuses; not shown: it may quote the token
         }
     }
 
     internal fun createBlocking(api: Api, script: String): Result {
         val accounts = api.json("GET", "/accounts?per_page=5")
         accounts.failure(firstCall = true)?.let { return it }
-        val accountId = accounts.result<JSONArray>()?.optJSONObject(0)?.optString("id").orEmpty()
+        val list = accounts.result<JSONArray>()
+        val accountId = list?.optJSONObject(0)?.optString("id").orEmpty()
         if (accountId.isEmpty()) return Result.Failed(Error.NO_ACCOUNT)
+        // With several accounts the first one listed is used; the result names it.
+        val accountName = if ((list?.length() ?: 0) > 1) list?.optJSONObject(0)?.optString("name") else null
         val account = "/accounts/$accountId/workers"
 
         val sub = api.json("GET", "$account/subdomain")
@@ -122,7 +138,7 @@ object WorkerSetup {
             JSONObject().put("enabled", true).put("previews_enabled", false).toString().toByteArray())
         enable.failure()?.let { return it }
 
-        return Result.Created("$SCRIPT_NAME.$subdomain.workers.dev")
+        return Result.Created("$SCRIPT_NAME.$subdomain.workers.dev", accountName?.takeIf { it.isNotBlank() })
     }
 
     /** The upload's body: metadata naming worker.js the main ES module, then worker.js. */
