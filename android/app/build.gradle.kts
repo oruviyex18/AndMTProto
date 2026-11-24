@@ -38,6 +38,13 @@ val releaseSigning: Map<String, String>? =
 
 val upstreamPythonDir = layout.buildDirectory.dir("generated/upstream-python")
 
+// AndMTProto's Cloudflare Worker (android/cf-worker), which WorkerSetup uploads for the user.
+val workerAssetsDir = layout.buildDirectory.dir("generated/worker-assets")
+val syncWorkerScript = tasks.register<Sync>("syncWorkerScript") {
+    from(rootProject.file("cf-worker")) { include("worker.js") }
+    into(workerAssetsDir.map { it.dir("cf-worker") })
+}
+
 val syncUpstreamProxy = tasks.register<Sync>("syncUpstreamProxy") {
     from(upstreamRoot.resolve("proxy")) {
         include("**/*.py")
@@ -110,13 +117,17 @@ chaquopy {
     }
 }
 
+android.sourceSets.getByName("main") {
+    assets.srcDir(workerAssetsDir.get().asFile)
+}
+
 // Chaquopy's per-variant Python tasks read the generated directory.
 tasks.configureEach {
     if (name != syncUpstreamProxy.name && name.contains("Python")) {
         dependsOn(syncUpstreamProxy)
     }
 }
-tasks.named("preBuild") { dependsOn(syncUpstreamProxy) }
+tasks.named("preBuild") { dependsOn(syncUpstreamProxy, syncWorkerScript) }
 
 dependencies {
     implementation(platform(libs.compose.bom))
