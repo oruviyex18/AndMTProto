@@ -51,6 +51,9 @@ jobs:
       - name: Android adapter tests
         run: python -m pytest -q android/tests
 
+      - name: Cloudflare Worker tests
+        run: node --test android/cf-worker/worker.test.mjs
+
   build:
     needs: test
     runs-on: ubuntu-latest
