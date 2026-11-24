@@ -93,4 +93,27 @@ class CfAutoTest {
     fun nothingAnswering() {
         assertEquals(CfChoice(null, false), chooseCfTransport(probe(false, false, false)))
     }
+
+    @Test
+    fun aWayThatCarriedNothingIsSkippedThoughTheCheckPassesIt() {
+        // GPB Mobile, 25 Nov 2026: the check passed the bypass, Telegram got nothing over it.
+        val all = probe(true, false, true)
+        assertEquals(CfChoice(CfTransport.PLAIN, false), chooseCfTransport(all, setOf(CfTransport.BYPASS)))
+        assertEquals(CfChoice(null, false), chooseCfTransport(all, setOf(CfTransport.BYPASS, CfTransport.PLAIN)))
+    }
+
+    @Test
+    fun stalledWaysAreKeptPerNetwork() {
+        val ways = StalledWays()
+        assertEquals(emptySet<CfTransport>(), ways.on("mobile"))
+        assertTrue(ways.add("mobile", CfTransport.BYPASS))
+        assertFalse("once per way", ways.add("mobile", CfTransport.BYPASS))
+        assertTrue(ways.add("mobile", CfTransport.PLAIN))
+        assertEquals(setOf(CfTransport.BYPASS, CfTransport.PLAIN), ways.on("mobile"))
+        assertEquals(emptySet<CfTransport>(), ways.on("wifi"))
+        assertTrue("another network starts afresh", ways.add("wifi", CfTransport.BYPASS))
+        assertEquals(emptySet<CfTransport>(), ways.on("mobile"))
+        ways.clear()
+        assertEquals(emptySet<CfTransport>(), ways.on("wifi"))
+    }
 }

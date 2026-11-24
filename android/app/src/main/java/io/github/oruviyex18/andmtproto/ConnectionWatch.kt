@@ -42,6 +42,36 @@ internal class StallDetector(
 }
 
 /**
+ * The CF ways that "Choose automatically" saw carry nothing on a network although
+ * its check passed them. On GPB Mobile on 25 Nov 2026 the check kept passing TLS
+ * with the bypass (Telegram answered, and over 24 KB went each way), but Telegram's
+ * own connections got nothing back for 20 minutes, while no TLS carried 700 KB in a
+ * minute: the watchdog restarted the core three times and the check picked the
+ * bypass again each time. Kept for one network ([on]); another network starts empty.
+ */
+internal class StalledWays {
+    private var network: Any? = null
+    private val ways = mutableSetOf<CfTransport>()
+
+    /** The ways that stalled on [on]. */
+    fun on(on: Any): Set<CfTransport> = if (on == network) ways.toSet() else emptySet()
+
+    /** Records that [way] carried nothing on [on]; false if it was already recorded. */
+    fun add(on: Any, way: CfTransport): Boolean {
+        if (on != network) {
+            network = on
+            ways.clear()
+        }
+        return ways.add(way)
+    }
+
+    fun clear() {
+        network = null
+        ways.clear()
+    }
+}
+
+/**
  * Notices when connections to the CF proxy keep failing although other traffic
  * flows, which [StallDetector] can't see. On an MTS Wi-Fi on 19 Nov 2026 the
  * bypass stopped getting through mid-session: over an hour, ~2300 CF hosts didn't

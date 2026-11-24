@@ -59,6 +59,9 @@ class ProxyService : Service() {
     /** When CF connections failing started the last check ([watchCfFailures]; elapsedRealtime). */
     private var cfFailureCheckAt = NEVER
 
+    /** Ways "Choose automatically" saw carry nothing although its check passed them. */
+    private val stalledWays = StalledWays()
+
     /** The log already says why the watchdog doesn't restart on a network that cuts Cloudflare off. */
     private var cutOffNoted = false
 
@@ -145,6 +148,7 @@ class ProxyService : Service() {
         // A start or a restart by the user (e.g. new settings) checks the CF connection again.
         startCheckedOn = null
         stallCheckedOn = null
+        stalledWays.clear()
         freshPickNext = true
         cfFailureCheckAt = NEVER
         cfCheckJob?.cancel()
@@ -233,8 +237,11 @@ class ProxyService : Service() {
     /**
      * When nothing has got through for a minute although Telegram keeps trying,
      * first lets "Choose automatically" check the CF connection again ([checkCf],
-     * once per network: blocking can start mid-session), then restarts the core once (fresh pools, DNS and CF domain choice); if that
-     * doesn't help either, tells the UI. Returns true when this session was replaced.
+     * once per network: blocking can start mid-session). If that keeps the way in use
+     * while Telegram's CF connections still get nothing, moves to the next way the check
+     * passes ([StalledWays]). Then restarts the core once (fresh pools, DNS and CF
+     * domain choice); if that doesn't help either, tells the UI. Returns true when this
+     * session was replaced.
      */
     private suspend fun watchStall(stalls: StallDetector, status: ProxyStatus): Boolean {
         val now = SystemClock.elapsedRealtime()
@@ -246,6 +253,17 @@ class ProxyService : Service() {
         if (on != null && on != stallCheckedOn && settings.cfproxy && settings.cfAuto) {
             stallCheckedOn = on
             launchCheckCf(on, fresh = true)
+            return false
+        }
+        // CF connections opened, so it's the way to the CF proxy that carries nothing.
+        if (on != null && settings.cfproxy && settings.cfAuto && status.cfOk > 0 &&
+            stalledWays.add(on, settings.cfTransport)
+        ) {
+            ProxyCore.note(
+                "Nothing gets through over ${label(settings.cfTransport)} on ${describeNetwork(on)} " +
+                    "although the check passes it; trying the next way that works"
+            )
+            launchCheckCf(on, fresh = false)
             return false
         }
         val check = ProxyCore.cfCheck.value
@@ -325,12 +343,16 @@ class ProxyService : Service() {
             return
         }
         noteProbe(on, probe)
-        val (target, cutOff) = chooseCfTransport(probe)
+        val stalled = stalledWays.on(on)
+        val (target, cutOff) = chooseCfTransport(probe, stalled)
         ProxyCore.setCfCheck(
             ProxyCore.CfCheck(on, describeNetwork(on), System.currentTimeMillis(), target, cutOff)
         )
         if (target == null) {
-            ProxyCore.note("No way to reach the CF proxy works on ${describeNetwork(on)}; keeping ${label(settings.cfTransport)}")
+            ProxyCore.note(
+                (if (stalled.isEmpty()) "No way to reach the CF proxy works" else "No other way to reach the CF proxy works") +
+                    " on ${describeNetwork(on)}; keeping ${label(settings.cfTransport)}"
+            )
             return
         }
         if (cutOff) {
