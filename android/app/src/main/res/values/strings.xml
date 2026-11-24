@@ -88,7 +88,8 @@
     <string name="worker_setup_bad_token">Cloudflare didn’t accept the token: check it was copied in full and hasn’t been deleted.</string>
     <string name="worker_setup_no_account">The token can’t see your account: give it “Account” → “Account Settings” → “Read” (on the token page: “Edit” next to the token) and try again.</string>
     <string name="worker_setup_no_permission">The token lacks permissions. Create it from the “Edit Cloudflare Workers” template and add “Account” → “Account Settings” → “Read”.</string>
-    <string name="worker_setup_network">Cloudflare’s API doesn’t answer from this network. Try another network or a VPN while setting up, or create the Worker with the guide.</string>
+    <string name="worker_setup_network">Cloudflare’s API can’t be reached from this network: it doesn’t answer, or another page answers in its place (a block page, a Wi-Fi sign-in page). Try another network or a VPN while setting up, or create the Worker with the guide.</string>
+    <string name="worker_setup_name_taken">Your account already has a different Worker named “andmtproto”, and AndMTProto won’t replace it. Rename or delete it on Cloudflare’s site (Workers &amp; Pages) and try again.</string>
     <string name="worker_setup_api">Cloudflare returned an error</string>
     <string name="cf_proxy_guide_url">https://github.com/Flowseal/tg-ws-proxy/blob/main/docs/EN/CfProxy.md</string>
     <string name="fake_tls">Fake TLS domain (optional)</string>

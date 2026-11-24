@@ -4,9 +4,15 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class WorkerSetupTest {
-    private class FakeCloudflare(var subdomain: String? = "alice", var uploadCode: Int = 200) : WorkerSetup.Api {
+    private class FakeCloudflare(
+        var subdomain: String? = "alice",
+        var uploadCode: Int = 200,
+        /** The code of a Worker already named andmtproto, or null for none. */
+        val existingScript: String? = null,
+    ) : WorkerSetup.Api {
         val calls = mutableListOf<Triple<String, String, String>>()
 
         override fun call(method: String, path: String, contentType: String?, body: ByteArray?): Pair<Int, String> {
@@ -21,6 +27,8 @@ class WorkerSetupTest {
                     subdomain = JSONObject(text).getString("subdomain")
                     200 to """{"success":true,"result":{"subdomain":"$subdomain"}}"""
                 }
+                method == "GET" && path == "/accounts/acc1/workers/scripts/andmtproto" && existingScript != null ->
+                    200 to existingScript
                 method == "PUT" && path == "/accounts/acc1/workers/scripts/andmtproto" ->
                     if (uploadCode == 200) 200 to """{"success":true,"result":{"id":"andmtproto"}}"""
                     else uploadCode to """{"success":false,"errors":[{"code":10000,"message":"Authentication error"}]}"""
@@ -38,14 +46,15 @@ class WorkerSetupTest {
         assertEquals(WorkerSetup.Result.Created("andmtproto.alice.workers.dev"), result)
         assertEquals(
             listOf("GET /accounts?per_page=5", "GET /accounts/acc1/workers/subdomain",
+                "GET /accounts/acc1/workers/scripts/andmtproto",
                 "PUT /accounts/acc1/workers/scripts/andmtproto", "POST /accounts/acc1/workers/scripts/andmtproto/subdomain"),
             cf.calls.map { "${it.first} ${it.second}" },
         )
-        val upload = cf.calls[2].third
+        val upload = cf.calls[3].third
         assertTrue(upload.contains("\"main_module\":\"worker.js\""))
         assertTrue(upload.contains("name=\"worker.js\"; filename=\"worker.js\"\r\nContent-Type: application/javascript+module"))
         assertTrue(upload.contains("export default {}"))
-        assertEquals(true, JSONObject(cf.calls[3].third).getBoolean("enabled"))
+        assertEquals(true, JSONObject(cf.calls[4].third).getBoolean("enabled"))
     }
 
     @Test
@@ -109,5 +118,38 @@ class WorkerSetupTest {
         assertEquals(WorkerSetup.Result.Created("andmtproto.alice.workers.dev", "Work"), WorkerSetup.createBlocking(two, "x"))
         assertEquals(null, (WorkerSetup.createBlocking(FakeCloudflare(), "x") as WorkerSetup.Result.Created).account)
     }
-}
 
+    @Test
+    fun theBundledWorkerCarriesTheMarkerTheAppLooksFor() {
+        // Gradle passes the script's path (app/build.gradle.kts); runners that don't get the
+        // two usual working directories, android/app and the repository root.
+        val candidates = listOfNotNull(System.getProperty("andmtproto.workerScript"))
+            .plus(listOf("../cf-worker/worker.js", "android/cf-worker/worker.js"))
+            .map(::File)
+        val file = candidates.firstOrNull { it.isFile }
+            ?: throw AssertionError("android/cf-worker/worker.js not found; tried ${candidates.map { it.absolutePath }}")
+        val script = file.readText()
+        assertTrue("worker.js must keep \"${WorkerSetup.SCRIPT_MARKER}\"", script.contains(WorkerSetup.SCRIPT_MARKER))
+    }
+
+    @Test
+    fun ourOwnWorkerIsUpdatedButSomeoneElsesIsLeftAlone() {
+        val ours = FakeCloudflare(existingScript = "// AndMTProto Cloudflare Worker: carries the proxy's connections\nexport default {}")
+        assertEquals(WorkerSetup.Result.Created("andmtproto.alice.workers.dev"), WorkerSetup.createBlocking(ours, "new"))
+        val theirs = FakeCloudflare(existingScript = "export default { fetch() { return new Response('mine') } }")
+        assertEquals(WorkerSetup.Error.NAME_TAKEN, (WorkerSetup.createBlocking(theirs, "new") as WorkerSetup.Result.Failed).error)
+        assertTrue("nothing uploaded", theirs.calls.none { it.first == "PUT" && it.second.endsWith("/scripts/andmtproto") })
+        // A sign-in page that answers the script check mid-setup isn't someone's Worker.
+        val portal = FakeCloudflare(existingScript = "\n  <!DOCTYPE html><html><body>Sign in to Wi-Fi</body></html>")
+        assertEquals(WorkerSetup.Error.NETWORK, (WorkerSetup.createBlocking(portal, "new") as WorkerSetup.Result.Failed).error)
+    }
+
+    @Test
+    fun anAnswerThatIsntCloudflaresMeansTheNetworkIsInTheWay() {
+        // A provider's block page with 403, a Wi-Fi sign-in page with 200: not about the token.
+        for (code in listOf(403, 200)) {
+            val page = WorkerSetup.Api { _, _, _, _ -> code to "<html><body>Access denied</body></html>" }
+            assertEquals(WorkerSetup.Error.NETWORK, (WorkerSetup.createBlocking(page, "x") as WorkerSetup.Result.Failed).error)
+        }
+    }
+}

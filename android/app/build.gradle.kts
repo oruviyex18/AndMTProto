@@ -129,6 +129,14 @@ tasks.configureEach {
 }
 tasks.named("preBuild") { dependsOn(syncUpstreamProxy, syncWorkerScript) }
 
+// WorkerSetupTest checks the Worker script itself, wherever the tests run from.
+tasks.withType<Test>().configureEach {
+    val workerScript = rootProject.file("cf-worker/worker.js")
+    systemProperty("andmtproto.workerScript", workerScript.absolutePath)
+    // Declared as an input, so a change to worker.js alone reruns the tests.
+    inputs.file(workerScript).withPathSensitivity(PathSensitivity.NONE)
+}
+
 dependencies {
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

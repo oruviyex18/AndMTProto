@@ -24,6 +24,9 @@ import java.security.SecureRandom
  */
 object WorkerSetup {
     const val SCRIPT_NAME = "andmtproto"
+
+    /** The first line of worker.js, kept in the uploaded code: tells our Worker from another. */
+    internal const val SCRIPT_MARKER = "AndMTProto Cloudflare Worker"
     const val TOKENS_PAGE = "https://dash.cloudflare.com/profile/api-tokens"
     private const val API = "https://api.cloudflare.com/client/v4"
     private const val ASSET = "cf-worker/worker.js"
@@ -46,8 +49,14 @@ object WorkerSetup {
         /** The token lacks a permission: "Workers Scripts" edit or "Account Settings" read. */
         NO_PERMISSION,
 
-        /** api.cloudflare.com didn't answer: no network, or blocked on this one. */
+        /**
+         * api.cloudflare.com didn't answer, or something else answered in its place
+         * (a provider's block page, a captive portal): no network, or blocked on this one.
+         */
         NETWORK,
+
+        /** The account already has a Worker named [SCRIPT_NAME] that isn't AndMTProto's. */
+        NAME_TAKEN,
 
         /** Anything else Cloudflare answered; [Result.Failed.detail] has its message. */
         API,
@@ -129,6 +138,16 @@ object WorkerSetup {
             if (subdomain.isEmpty()) return Result.Failed(Error.API, "no workers.dev subdomain")
         }
 
+        // Uploading replaces a Worker of the same name: fine for ours (that's how the code
+        // is updated), not for one the user made themselves and happened to call that.
+        val (existingCode, existing) = api.call("GET", "$account/scripts/$SCRIPT_NAME", null, null)
+        if (existingCode == 200 && !existing.contains(SCRIPT_MARKER)) {
+            // The download is raw code, not Cloudflare's JSON envelope: a web page here is a
+            // block or sign-in page answering in Cloudflare's place, not someone's Worker.
+            if (looksLikeWebPage(existing)) return Result.Failed(Error.NETWORK, "HTTP $existingCode")
+            return Result.Failed(Error.NAME_TAKEN)
+        }
+
         val boundary = "andmtproto-${randomSuffix()}"
         val upload = api.json("PUT", "$account/scripts/$SCRIPT_NAME", "multipart/form-data; boundary=$boundary",
             multipart(boundary, script))
@@ -139,6 +158,11 @@ object WorkerSetup {
         enable.failure()?.let { return it }
 
         return Result.Created("$SCRIPT_NAME.$subdomain.workers.dev", accountName?.takeIf { it.isNotBlank() })
+    }
+
+    internal fun looksLikeWebPage(text: String): Boolean {
+        val start = text.trimStart().take(15).lowercase()
+        return start.startsWith("<!doctype") || start.startsWith("<html")
     }
 
     /** The upload's body: metadata naming worker.js the main ES module, then worker.js. */
@@ -172,7 +196,10 @@ object WorkerSetup {
         /** Null when the call worked, else what to tell the user. */
         fun failure(firstCall: Boolean = false): Result.Failed? {
             if (code in 200..299 && body?.optBoolean("success", false) == true) return null
-            val message = body?.optJSONArray("errors")?.optJSONObject(0)?.optString("message")
+            // Not Cloudflare's JSON envelope: a block page or captive portal answered, and
+            // its status code says nothing about the token.
+            if (body == null || !body.has("success")) return Result.Failed(Error.NETWORK, "HTTP $code")
+            val message = body.optJSONArray("errors")?.optJSONObject(0)?.optString("message")
             return when {
                 // 401: Cloudflare doesn't know the token; 403: it does, but lacks a permission.
                 // 400 on the first call: "Invalid request headers", a malformed token.
