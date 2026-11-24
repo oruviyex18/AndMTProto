@@ -11,6 +11,7 @@ listens on `127.0.0.1:1443`, and the Telegram app connects to it as an MTProto p
 | `../proxy/` | Upstream core, copied into the APK at build time (`syncUpstreamProxy` task). **Never edit it here.** |
 | `app/src/main/python/android_entry.py` | Adapter: config mapping, start/stop thread, status, `tg://` link. Mirrors `utils/tray_common.py`. |
 | `app/src/main/python/ws_pool_control.py` | Pauses the core's WebSocket pool while the screen is off; WebSockets opened on demand meanwhile. |
+| `app/src/main/python/cf_outcomes.py` | Counts the core's Cloudflare attempts and why they fail, for the automatic CF recheck and the app's reasons line. |
 | `app/src/main/python/tls_bypass.py` | TLS-blocking bypass for the core's connections to CF and Telegram. |
 | `app/src/main/java/.../ProxyCore.kt` | Kotlin → Python calls. |
 | `app/src/main/java/.../ProxyService.kt` | Foreground service that owns the proxy thread, with notification actions. |
@@ -23,7 +24,7 @@ listens on `127.0.0.1:1443`, and the Telegram app connects to it as an MTProto p
 | `app/requirements.txt` | Python packages for the core, shared by Chaquopy and CI. |
 | `gradle/libs.versions.toml` | Versions of Gradle plugins and Android libraries. |
 | `tests/test_android_entry.py` | Desktop pytest for the adapter against the real `proxy/`. |
-| `tests/test_ws_pool_control.py`, `tests/test_tls_bypass.py` | Desktop pytest for the two modules above. |
+| `tests/test_ws_pool_control.py`, `tests/test_cf_outcomes.py`, `tests/test_tls_bypass.py` | Desktop pytest for the modules above. |
 | `tests/core_helpers.py` | Helpers for the tests that start the real core. |
 | `cf-worker/worker.js`, `docs/cf-worker-*.md` | Our Cloudflare Worker (relays only to Telegram's networks) and its setup guide, linked from the app. Tests: `node --test android/cf-worker/worker.test.mjs`. |
 
@@ -119,12 +120,13 @@ When reviewing a sync PR:
    `_refill_after`, `try_fronting_first`, `_quiet_close`, `warmup()`) and wraps `ws_pool.get()`;
    check `_pause_pool`, `_ws_on_demand` and `install()` still match, and run
    `test_ws_pool_control.py`.
-5. **CF proxy connect code changed** (`proxy/cf_websocket.py`, `_cfproxy_fallback` in
-   `proxy/bridge.py`): the automatic CF recheck counts failed CF attempts with
-   `_install_cf_failure_count` in `android_entry.py`, which replaces the `RawWebSocket` that
-   `cf_websocket.py` imported with a counting subclass and wraps `bridge.connect_cf_domains`.
-   Check both names are still used that way, and run the `test_cf_failures_*` tests, which
-   drive the core's own code.
+5. **CF proxy or CF Worker connect code changed** (`proxy/cf_websocket.py`,
+   `_cfproxy_fallback` in `proxy/bridge.py`, `connect_one` in `proxy/pool.py`): the automatic CF
+   recheck and the app's line on why Cloudflare fails count the core's attempts in
+   `cf_outcomes.py`. Its `install()` replaces the `RawWebSocket` that `cf_websocket.py` and
+   `pool.py` imported with counting subclasses and wraps `bridge.connect_cf_domains`. Check
+   those names are still used that way, and run `test_cf_outcomes.py`, which drives the core's
+   own code.
 6. **New import or version pin in `pyproject.toml` that `proxy/` uses:** add it to
    `app/requirements.txt` (Chaquopy and CI both install from it). A native package needs an
    Android wheel from Chaquopy's index.
