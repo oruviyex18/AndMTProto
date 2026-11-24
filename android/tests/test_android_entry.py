@@ -353,29 +353,6 @@ def test_status_counts_rejected_handshakes(tmp_path):
         android_entry.stop()
 
 
-
-def test_status_counts_cf_proxy_failures(tmp_path):
-    """cf_failed counts the core's "CF proxy failed" warnings (one per host that
-    didn't open), from zero at each start; cf_ok its CF connections that opened."""
-    import logging
-    core_log = logging.getLogger("tg-mtproto-proxy")
-    try:
-        assert android_entry.start(_cfg(), str(tmp_path)) is None
-        assert _wait(lambda: json.loads(android_entry.status())["listening"])
-        for _ in range(3):
-            core_log.warning("[%s] DC%d%s CF proxy failed: %r (host=%s port=%d)",
-                             "x", 1, "", TimeoutError(), "kws1.a.example", 443)
-        core_log.warning("[%s] DC%d no fallback available", "x", 1)
-        android_entry.stats.connections_cfproxy += 1
-        st = json.loads(android_entry.status())
-        assert (st["cf_failed"], st["cf_ok"]) == (3, 1)
-        android_entry.stop()
-        assert android_entry.start(_cfg(), str(tmp_path)) is None
-        st = json.loads(android_entry.status())
-        assert (st["cf_failed"], st["cf_ok"]) == (0, 0)
-    finally:
-        android_entry.stop()
-
 def test_note_writes_dated_line_to_log(tmp_path):
     """Lines from the Android side (network changes, automatic restarts) land in
     the proxy log, and the log file carries dates so a shared log can be read later."""
@@ -542,3 +519,113 @@ def test_probe_request_is_req_pq_multi_for_dc2():
 def test_probe_cf_skipped_without_cf_proxy(monkeypatch):
     monkeypatch.setattr(android_entry.proxy_config, "fallback_cfproxy", False)
     assert json.loads(android_entry.probe_cf()) == {}
+
+
+def _cf_hosts(*names):
+    return [(name, "kws2." + name) for name in names]
+
+
+def _fake_cf_connect(monkeypatch, opens=(), times_out=()):
+    """RawWebSocket.connect as the core's CF code sees it: hosts in `opens` give
+    a WebSocket, those in `times_out` time out, the rest are refused."""
+    from proxy import cf_websocket, raw_websocket
+    tried = []
+
+    async def connect(host, domain, **kwargs):
+        tried.append(host)
+        name = host.split(".", 1)[1]
+        if name in opens:
+            return object()
+        if name in times_out:
+            raise asyncio.TimeoutError()
+        if name == "hangs.example":
+            await asyncio.sleep(3600)
+        raise ConnectionResetError()
+    # The base class: the core's CF code reaches it through the adapter's counting subclass.
+    monkeypatch.setattr(raw_websocket.RawWebSocket, "connect", staticmethod(connect))
+    cf_websocket.reset_cf_timeouts()
+    return tried
+
+
+def _connect_cf(hosts):
+    from proxy import bridge
+    return asyncio.run(bridge.connect_cf_domains(hosts, label="t", secure=False))
+
+
+def test_cf_failures_count_the_hosts_the_core_tried(monkeypatch):
+    """Through the core's own connect code: each host it tried that failed or
+    timed out counts once; a host it skips because it timed out moments ago
+    doesn't, and neither does the host that opened."""
+    from proxy import cf_websocket
+    tried = _fake_cf_connect(monkeypatch, opens={"c.example"}, times_out={"slow.example"})
+    try:
+        before = android_entry._cf_failures.count
+        assert _connect_cf(_cf_hosts("bad.example", "slow.example")) is None
+        assert android_entry._cf_failures.count - before == 2
+        before, tried[:] = android_entry._cf_failures.count, []
+        assert _connect_cf(_cf_hosts("slow.example", "bad.example")) is None
+        assert tried == ["kws2.bad.example"]  # slow.example sits out its cooldown
+        assert android_entry._cf_failures.count - before == 1
+        before, tried[:] = android_entry._cf_failures.count, []
+        result = _connect_cf(_cf_hosts("bad.example", "slow.example", "c.example", "d.example"))
+        assert result is not None and result[1] == "c.example"
+        assert tried == ["kws2.bad.example", "kws2.c.example"]
+        assert android_entry._cf_failures.count - before == 1
+    finally:
+        cf_websocket.reset_cf_timeouts()
+
+
+def test_cf_failures_count_a_connection_that_tried_no_host(monkeypatch):
+    """Every host sits out a timeout: the core fails the connection at once and
+    logs nothing; that still counts, once."""
+    from proxy import cf_websocket
+    tried = _fake_cf_connect(monkeypatch, times_out={"slow.example"})
+    try:
+        _connect_cf(_cf_hosts("slow.example"))
+        before, tried[:] = android_entry._cf_failures.count, []
+        assert _connect_cf(_cf_hosts("slow.example")) is None
+        assert tried == []
+        assert android_entry._cf_failures.count - before == 1
+    finally:
+        cf_websocket.reset_cf_timeouts()
+
+
+def test_cf_failures_skip_a_connection_its_client_left(monkeypatch):
+    """Telegram dropped the connection while the core dialled: not a CF failure."""
+    from proxy import bridge, cf_websocket
+    _fake_cf_connect(monkeypatch)
+
+    async def scenario():
+        task = asyncio.ensure_future(bridge.connect_cf_domains(
+            _cf_hosts("hangs.example"), label="t", secure=False))
+        await asyncio.sleep(0.01)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+    try:
+        before = android_entry._cf_failures.count
+        asyncio.run(scenario())
+        assert android_entry._cf_failures.count == before
+    finally:
+        cf_websocket.reset_cf_timeouts()
+
+
+def test_cf_failures_reset_at_each_start(tmp_path, monkeypatch):
+    from proxy import cf_websocket
+    _fake_cf_connect(monkeypatch)
+    try:
+        assert android_entry.start(_cfg(), str(tmp_path)) is None
+        assert _wait(lambda: json.loads(android_entry.status())["listening"])
+        _connect_cf(_cf_hosts("a.example", "b.example", "c.example"))
+        android_entry.stats.connections_cfproxy += 1
+        st = json.loads(android_entry.status())
+        assert (st["cf_failed"], st["cf_ok"]) == (3, 1)
+        android_entry.stop()
+        assert android_entry.start(_cfg(), str(tmp_path)) is None
+        st = json.loads(android_entry.status())
+        assert (st["cf_failed"], st["cf_ok"]) == (0, 0)
+    finally:
+        android_entry.stop()
+        cf_websocket.reset_cf_timeouts()
