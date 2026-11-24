@@ -103,7 +103,8 @@ def _worker_trouble() -> Optional[str]:
     """The commonest reason when every Worker tried since start is failing (twice in
     a row, or once for the daily limit, which lasts until the reset), else None."""
     with _cf_events_lock:
-        tried = list(_worker_outcomes.values())
+        # Copied inside the lock: _record_worker sets outcome and row as two steps.
+        tried = [(outcome, row) for outcome, row in _worker_outcomes.values()]
     if not tried:
         return None
     failing = [outcome for outcome, row in tried if row >= 2 or (row >= 1 and outcome == "limit")]
