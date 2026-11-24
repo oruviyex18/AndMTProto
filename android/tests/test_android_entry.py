@@ -706,3 +706,35 @@ def test_worker_trouble_needs_every_worker_failing(monkeypatch):
     assert trouble() in ("timeout", "server_error")
     record("a.workers.dev", "ok")
     assert trouble() is None
+
+
+def test_worker_counts_as_working_only_once_data_comes_back(monkeypatch):
+    """Our Worker accepts the WebSocket, then closes it (1011) when it can't reach
+    Telegram: that's a failure, not a working Worker."""
+    from proxy import pool, raw_websocket
+    monkeypatch.setattr(android_entry, "_worker_outcomes", {})
+    monkeypatch.setattr(android_entry.proxy_config, "cfproxy_worker_domains", ["w.example.workers.dev"])
+
+    class FakeWs:
+        def __init__(self, first):
+            self.first = first
+
+        async def recv(self):
+            return self.first
+
+    replies = iter([None, None, b"resPQ"])
+
+    async def connect(host, domain, **kwargs):
+        return FakeWs(next(replies))
+    monkeypatch.setattr(raw_websocket.RawWebSocket, "connect", staticmethod(connect))
+
+    async def open_and_read():
+        ws = await pool.RawWebSocket.connect("w.example.workers.dev", "w.example.workers.dev")
+        return await ws.recv()
+
+    assert asyncio.run(open_and_read()) is None
+    assert android_entry._worker_trouble() is None  # once can be a blip
+    assert asyncio.run(open_and_read()) is None
+    assert android_entry._worker_trouble() == "worker_closed"
+    assert asyncio.run(open_and_read()) == b"resPQ"
+    assert android_entry._worker_trouble() is None

@@ -193,6 +193,7 @@ private fun cfReasonText(trouble: CfTrouble): Int = when (trouble.reason) {
     CfFailureReason.SERVER_ERROR -> R.string.cf_reason_server_error
     CfFailureReason.HTTP -> R.string.cf_reason_http
     CfFailureReason.NETWORK -> R.string.cf_reason_network
+    CfFailureReason.WORKER_CLOSED -> R.string.cf_reason_worker_closed
     CfFailureReason.OTHER -> R.string.cf_reason_other
 }
 

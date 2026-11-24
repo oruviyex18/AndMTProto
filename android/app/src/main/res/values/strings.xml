@@ -66,6 +66,7 @@
     <string name="cf_reason_server_error">an error on Cloudflare’s side (5xx). For your own Worker, the code was pasted incompletely or with a mistake</string>
     <string name="cf_reason_http">an unexpected answer from the server</string>
     <string name="cf_reason_network">no network access</string>
+    <string name="cf_reason_worker_closed">the Worker closes the connection without reaching Telegram. Check it runs the code from AndMTProto’s guide and update it</string>
     <string name="cf_reason_other">an unknown error; see the log for details</string>
     <string name="cf_worker_guide">CF Worker guide</string>
     <string name="cf_proxy_guide">CF domain guide</string>

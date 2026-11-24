@@ -20,6 +20,9 @@ enum class CfFailureReason(val key: String) {
     SERVER_ERROR("server_error"),
     HTTP("http"),
     NETWORK("network"),
+
+    /** A Worker accepted the WebSocket but closed it before any data: it can't reach Telegram. */
+    WORKER_CLOSED("worker_closed"),
     OTHER("other");
 
     companion object {

@@ -62,6 +62,7 @@
     <string name="cf_reason_server_error">ошибка на стороне Cloudflare (5xx). Для своего Worker: код вставлен не полностью или с ошибкой</string>
     <string name="cf_reason_http">неожиданный ответ сервера</string>
     <string name="cf_reason_network">нет доступа к сети</string>
+    <string name="cf_reason_worker_closed">Worker закрывает соединение, не дойдя до Telegram. Проверьте, что в нём код из инструкции AndMTProto, и обновите его</string>
     <string name="cf_reason_other">неизвестная ошибка, подробности в журнале</string>
     <string name="cf_worker_guide">Инструкция CF Worker</string>
     <string name="cf_proxy_guide">Инструкция для домена CF</string>

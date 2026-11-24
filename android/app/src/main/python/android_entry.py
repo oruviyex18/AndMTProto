@@ -513,10 +513,32 @@ def _install_worker_outcomes() -> None:
             except Exception as exc:
                 _record_worker(host.lower(), _cf_failure_reason(exc))
                 raise
-            _record_worker(host.lower(), "ok")
+            _watch_first_read(ws, host.lower())
             return ws
 
     pool.RawWebSocket = _WorkerAwareRawWebSocket
+
+
+def _watch_first_read(ws: RawWebSocket, domain: str) -> None:
+    """A Worker that accepts the WebSocket can still fail to reach Telegram: ours
+    then closes it (1011) before any data. So the Worker counts as working only
+    once data comes back, and as "worker_closed" when the first read gets none.
+    (Pooled WebSockets that are never used count as neither.)"""
+    read = ws.recv
+
+    async def first_recv() -> Optional[bytes]:
+        ws.recv = read  # later reads go straight through
+        try:
+            data = await read()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            _record_worker(domain, "worker_closed")
+            raise
+        _record_worker(domain, "ok" if data else "worker_closed")
+        return data
+
+    ws.recv = first_recv  # type: ignore[method-assign]
 
 
 _install_cf_failure_count()
