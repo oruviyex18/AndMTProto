@@ -125,6 +125,9 @@ class WorkerSetupTest {
         val theirs = FakeCloudflare(existingScript = "export default { fetch() { return new Response('mine') } }")
         assertEquals(WorkerSetup.Error.NAME_TAKEN, (WorkerSetup.createBlocking(theirs, "new") as WorkerSetup.Result.Failed).error)
         assertTrue("nothing uploaded", theirs.calls.none { it.first == "PUT" && it.second.endsWith("/scripts/andmtproto") })
+        // A sign-in page that answers the script check mid-setup isn't someone's Worker.
+        val portal = FakeCloudflare(existingScript = "\n  <!DOCTYPE html><html><body>Sign in to Wi-Fi</body></html>")
+        assertEquals(WorkerSetup.Error.NETWORK, (WorkerSetup.createBlocking(portal, "new") as WorkerSetup.Result.Failed).error)
     }
 
     @Test

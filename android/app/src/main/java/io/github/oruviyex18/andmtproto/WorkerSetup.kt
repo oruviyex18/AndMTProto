@@ -141,7 +141,12 @@ object WorkerSetup {
         // Uploading replaces a Worker of the same name: fine for ours (that's how the code
         // is updated), not for one the user made themselves and happened to call that.
         val (existingCode, existing) = api.call("GET", "$account/scripts/$SCRIPT_NAME", null, null)
-        if (existingCode == 200 && !existing.contains(SCRIPT_MARKER)) return Result.Failed(Error.NAME_TAKEN)
+        if (existingCode == 200 && !existing.contains(SCRIPT_MARKER)) {
+            // The download is raw code, not Cloudflare's JSON envelope: a web page here is a
+            // block or sign-in page answering in Cloudflare's place, not someone's Worker.
+            if (looksLikeWebPage(existing)) return Result.Failed(Error.NETWORK, "HTTP $existingCode")
+            return Result.Failed(Error.NAME_TAKEN)
+        }
 
         val boundary = "andmtproto-${randomSuffix()}"
         val upload = api.json("PUT", "$account/scripts/$SCRIPT_NAME", "multipart/form-data; boundary=$boundary",
@@ -153,6 +158,11 @@ object WorkerSetup {
         enable.failure()?.let { return it }
 
         return Result.Created("$SCRIPT_NAME.$subdomain.workers.dev", accountName?.takeIf { it.isNotBlank() })
+    }
+
+    internal fun looksLikeWebPage(text: String): Boolean {
+        val start = text.trimStart().take(15).lowercase()
+        return start.startsWith("<!doctype") || start.startsWith("<html")
     }
 
     /** The upload's body: metadata naming worker.js the main ES module, then worker.js. */
