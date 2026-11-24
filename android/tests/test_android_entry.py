@@ -528,7 +528,7 @@ def _cf_hosts(*names):
 def _fake_cf_connect(monkeypatch, opens=(), times_out=()):
     """RawWebSocket.connect as the core's CF code sees it: hosts in `opens` give
     a WebSocket, those in `times_out` time out, the rest are refused."""
-    from proxy import cf_websocket
+    from proxy import cf_websocket, raw_websocket
     tried = []
 
     async def connect(host, domain, **kwargs):
@@ -538,8 +538,11 @@ def _fake_cf_connect(monkeypatch, opens=(), times_out=()):
             return object()
         if name in times_out:
             raise asyncio.TimeoutError()
+        if name == "hangs.example":
+            await asyncio.sleep(3600)
         raise ConnectionResetError()
-    monkeypatch.setattr(cf_websocket.RawWebSocket, "connect", staticmethod(connect))
+    # The base class: the core's CF code reaches it through the adapter's counting subclass.
+    monkeypatch.setattr(raw_websocket.RawWebSocket, "connect", staticmethod(connect))
     cf_websocket.reset_cf_timeouts()
     return tried
 
@@ -549,10 +552,10 @@ def _connect_cf(hosts):
     return asyncio.run(bridge.connect_cf_domains(hosts, label="t", secure=False))
 
 
-def test_cf_failures_count_every_host_a_connection_went_through(monkeypatch):
-    """Through the core's own connect code: hosts that failed or timed out count,
-    hosts before the one that opened count, and a host the core skips because it
-    timed out moments ago counts too (1.12.0 logs only its first timeout)."""
+def test_cf_failures_count_the_hosts_the_core_tried(monkeypatch):
+    """Through the core's own connect code: each host it tried that failed or
+    timed out counts once; a host it skips because it timed out moments ago
+    doesn't, and neither does the host that opened."""
     from proxy import cf_websocket
     tried = _fake_cf_connect(monkeypatch, opens={"c.example"}, times_out={"slow.example"})
     try:
@@ -562,11 +565,49 @@ def test_cf_failures_count_every_host_a_connection_went_through(monkeypatch):
         before, tried[:] = android_entry._cf_failures.count, []
         assert _connect_cf(_cf_hosts("slow.example", "bad.example")) is None
         assert tried == ["kws2.bad.example"]  # slow.example sits out its cooldown
-        assert android_entry._cf_failures.count - before == 2
-        before = android_entry._cf_failures.count
+        assert android_entry._cf_failures.count - before == 1
+        before, tried[:] = android_entry._cf_failures.count, []
         result = _connect_cf(_cf_hosts("bad.example", "slow.example", "c.example", "d.example"))
         assert result is not None and result[1] == "c.example"
-        assert android_entry._cf_failures.count - before == 2
+        assert tried == ["kws2.bad.example", "kws2.c.example"]
+        assert android_entry._cf_failures.count - before == 1
+    finally:
+        cf_websocket.reset_cf_timeouts()
+
+
+def test_cf_failures_count_a_connection_that_tried_no_host(monkeypatch):
+    """Every host sits out a timeout: the core fails the connection at once and
+    logs nothing; that still counts, once."""
+    from proxy import cf_websocket
+    tried = _fake_cf_connect(monkeypatch, times_out={"slow.example"})
+    try:
+        _connect_cf(_cf_hosts("slow.example"))
+        before, tried[:] = android_entry._cf_failures.count, []
+        assert _connect_cf(_cf_hosts("slow.example")) is None
+        assert tried == []
+        assert android_entry._cf_failures.count - before == 1
+    finally:
+        cf_websocket.reset_cf_timeouts()
+
+
+def test_cf_failures_skip_a_connection_its_client_left(monkeypatch):
+    """Telegram dropped the connection while the core dialled: not a CF failure."""
+    from proxy import bridge, cf_websocket
+    _fake_cf_connect(monkeypatch)
+
+    async def scenario():
+        task = asyncio.ensure_future(bridge.connect_cf_domains(
+            _cf_hosts("hangs.example"), label="t", secure=False))
+        await asyncio.sleep(0.01)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+    try:
+        before = android_entry._cf_failures.count
+        asyncio.run(scenario())
+        assert android_entry._cf_failures.count == before
     finally:
         cf_websocket.reset_cf_timeouts()
 

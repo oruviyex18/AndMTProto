@@ -119,10 +119,11 @@ When reviewing a sync PR:
    check `_pause_pool`, `_ws_on_demand` and `install()` still match, and run
    `test_ws_pool_control.py`.
 5. **CF proxy connect code changed** (`proxy/cf_websocket.py`, `_cfproxy_fallback` in
-   `proxy/bridge.py`): the automatic CF recheck counts failed CF hosts by wrapping
-   `bridge.connect_cf_domains` (`_install_cf_failure_count` in `android_entry.py`). Check
-   `_cfproxy_fallback` still calls it by that name with the `(name, host)` list, and run the
-   `test_cf_failures_*` tests, which drive the core's own code.
+   `proxy/bridge.py`): the automatic CF recheck counts failed CF attempts with
+   `_install_cf_failure_count` in `android_entry.py`, which replaces the `RawWebSocket` that
+   `cf_websocket.py` imported with a counting subclass and wraps `bridge.connect_cf_domains`.
+   Check both names are still used that way, and run the `test_cf_failures_*` tests, which
+   drive the core's own code.
 6. **New import or version pin in `pyproject.toml` that `proxy/` uses:** add it to
    `app/requirements.txt` (Chaquopy and CI both install from it). A native package needs an
    Android wheel from Chaquopy's index.

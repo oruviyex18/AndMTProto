@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import contextvars
 import errno
 import json
 import logging
@@ -349,41 +350,61 @@ def _run_proxy_thread(stop_requested: threading.Event) -> None:
 
 
 class _CfFailureCounter:
-    """CF proxy hosts that didn't give a connection a WebSocket (cf_failed in
-    status()); the core counts only the connections that got one
-    (stats.connections_cfproxy). Counted per connection, around the core's
-    bridge.connect_cf_domains (_install_cf_failure_count), so hosts it skips
-    without trying count too: since 1.12.0 a host and TLS mode that timed out
-    sit out 30 s, and the core logs only the first timeout."""
+    """Failed CF proxy attempts (cf_failed in status()); the core counts only
+    the connections that got a WebSocket (stats.connections_cfproxy). One per
+    CF proxy host the core tried that didn't open, and one per connection
+    that got none without trying a host: since 1.12.0 a host and TLS mode that
+    timed out sit out 30 s, and a connection that finds them all sitting out
+    fails at once. See _install_cf_failure_count."""
 
     def __init__(self) -> None:
         self.count = 0
 
 
 _cf_failures = _CfFailureCounter()
+# The failed tries of the CF proxy connection running in this task.
+_cf_tries: "contextvars.ContextVar[Optional[List[int]]]" = contextvars.ContextVar(
+    "andmtproto_cf_tries", default=None)
 
 
 def _install_cf_failure_count() -> None:
-    """Wraps the core's bridge.connect_cf_domains to count, for each CF proxy
-    connection, the hosts it went through without a WebSocket: all of them
-    when none opened, else those before the one that did. Upstream code stays
-    unedited; review this whenever upstream changes cf_websocket.py or
-    _cfproxy_fallback in bridge.py."""
-    from proxy import bridge
+    """Counts the core's failed CF proxy attempts without editing it:
+    cf_websocket.connect_cf_domains opens each host through the RawWebSocket
+    it imported, so that name gets a subclass whose connect() counts the
+    tries that fail (a timeout or an error, not a cancelled connection), and
+    bridge.connect_cf_domains a wrapper that counts a connection that got no
+    WebSocket and tried no host. Review this whenever upstream changes
+    cf_websocket.py or _cfproxy_fallback in bridge.py."""
+    from proxy import bridge, cf_websocket
     if getattr(bridge, "_andmtproto_cf_count", False):
         return
-    connect = bridge.connect_cf_domains
 
-    async def counted(candidates: Any, *args: Any, **kwargs: Any) -> Any:
-        hosts = list(candidates)
-        result = await connect(hosts, *args, **kwargs)
-        names = [name for name, _host in hosts]
-        if result is None:
-            _cf_failures.count += len(names)
-        elif result[1] in names:
-            _cf_failures.count += names.index(result[1])
+    class _CountedRawWebSocket(RawWebSocket):
+        @staticmethod
+        async def connect(*args: Any, **kwargs: Any) -> RawWebSocket:
+            try:
+                return await RawWebSocket.connect(*args, **kwargs)
+            except Exception:
+                _cf_failures.count += 1
+                tries = _cf_tries.get()
+                if tries is not None:
+                    tries[0] += 1
+                raise
+
+    connect_domains = bridge.connect_cf_domains
+
+    async def counted(*args: Any, **kwargs: Any) -> Any:
+        tries = [0]
+        token = _cf_tries.set(tries)
+        try:
+            result = await connect_domains(*args, **kwargs)
+        finally:
+            _cf_tries.reset(token)
+        if result is None and not tries[0]:
+            _cf_failures.count += 1  # every host was sitting out a timeout
         return result
 
+    cf_websocket.RawWebSocket = _CountedRawWebSocket
     bridge.connect_cf_domains = counted
     bridge._andmtproto_cf_count = True
 
