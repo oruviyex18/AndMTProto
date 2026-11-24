@@ -348,29 +348,47 @@ def _run_proxy_thread(stop_requested: threading.Event) -> None:
                 _async_stop = None
 
 
-class _CfFailureCounter(logging.Handler):
-    """Counts the core's warnings for CF proxy hosts that didn't open a
-    WebSocket (cf_websocket.connect_cf_domains, since 1.12.0): "CF WebSocket
-    failed", and "CF WebSocket timed out", which the core logs when it puts a
-    host and TLS mode on its 30 s cooldown (it then skips that pair without a
-    word). The core counts only the connections that opened
-    (stats.connections_cfproxy), and its code stays unedited. Review the
-    messages whenever upstream changes cf_websocket.py."""
-
-    MESSAGES = ("CF WebSocket failed", "CF WebSocket timed out")
+class _CfFailureCounter:
+    """CF proxy hosts that didn't give a connection a WebSocket (cf_failed in
+    status()); the core counts only the connections that got one
+    (stats.connections_cfproxy). Counted per connection, around the core's
+    bridge.connect_cf_domains (_install_cf_failure_count), so hosts it skips
+    without trying count too: since 1.12.0 a host and TLS mode that timed out
+    sit out 30 s, and the core logs only the first timeout."""
 
     def __init__(self) -> None:
-        super().__init__(logging.WARNING)
         self.count = 0
-
-    def emit(self, record: logging.LogRecord) -> None:
-        msg = str(record.msg)
-        if any(m in msg for m in self.MESSAGES):
-            self.count += 1
 
 
 _cf_failures = _CfFailureCounter()
-logging.getLogger("tg-mtproto-proxy").addHandler(_cf_failures)
+
+
+def _install_cf_failure_count() -> None:
+    """Wraps the core's bridge.connect_cf_domains to count, for each CF proxy
+    connection, the hosts it went through without a WebSocket: all of them
+    when none opened, else those before the one that did. Upstream code stays
+    unedited; review this whenever upstream changes cf_websocket.py or
+    _cfproxy_fallback in bridge.py."""
+    from proxy import bridge
+    if getattr(bridge, "_andmtproto_cf_count", False):
+        return
+    connect = bridge.connect_cf_domains
+
+    async def counted(candidates: Any, *args: Any, **kwargs: Any) -> Any:
+        hosts = list(candidates)
+        result = await connect(hosts, *args, **kwargs)
+        names = [name for name, _host in hosts]
+        if result is None:
+            _cf_failures.count += len(names)
+        elif result[1] in names:
+            _cf_failures.count += names.index(result[1])
+        return result
+
+    bridge.connect_cf_domains = counted
+    bridge._andmtproto_cf_count = True
+
+
+_install_cf_failure_count()
 
 
 def _reset_stats(now: float) -> None:
