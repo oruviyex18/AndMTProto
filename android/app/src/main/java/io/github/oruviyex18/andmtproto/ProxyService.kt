@@ -286,9 +286,11 @@ class ProxyService : Service() {
         if (now - cfFailureCheckAt < CF_FAILURE_RECHECK_MS) return
         val on = network ?: connectivity.activeNetwork ?: return
         cfFailureCheckAt = now
+        val reason = cfTrouble(status.cfRecent)?.takeIf { it.route == CfRoute.CF_PROXY }?.reason?.key
         ProxyCore.note(
             "Connections to the CF proxy keep failing (${cfFailures.failed} failed, " +
-                "${cfFailures.opened} opened in 2 minutes) over ${label(settings.cfTransport)}; checking the CF connection again"
+                "${cfFailures.opened} opened in 2 minutes${reason?.let { ", mostly $it" } ?: ""}) " +
+                "over ${label(settings.cfTransport)}; checking the CF connection again"
         )
         launchCheckCf(on, fresh = true)
     }
