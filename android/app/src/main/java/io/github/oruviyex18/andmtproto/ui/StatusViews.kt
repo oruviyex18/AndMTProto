@@ -37,9 +37,13 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import io.github.oruviyex18.andmtproto.CfFailureReason
+import io.github.oruviyex18.andmtproto.CfRoute
+import io.github.oruviyex18.andmtproto.CfTrouble
 import io.github.oruviyex18.andmtproto.ProxySettings
 import io.github.oruviyex18.andmtproto.ProxyStatus
 import io.github.oruviyex18.andmtproto.R
+import io.github.oruviyex18.andmtproto.cfTrouble
 
 /** What the big control and the status line show. */
 internal enum class ProxyState(@StringRes val label: Int) {
@@ -156,6 +160,40 @@ internal fun CfConnectionLine(saved: ProxySettings) {
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+}
+
+/**
+ * "Cloudflare doesn't answer: the connection keeps being cut off…": shown while
+ * recent CF proxy or own-Worker attempts mostly fail ([cfTrouble]), so the user
+ * knows why media or some chats load slowly.
+ */
+@Composable
+internal fun CfTroubleLine(status: ProxyStatus) {
+    val trouble = cfTrouble(status.cfRecent, status.workerTrouble) ?: return
+    val reason = stringResource(cfReasonText(trouble))
+    Text(
+        stringResource(
+            if (trouble.route == CfRoute.WORKER) R.string.cf_trouble_worker else R.string.cf_trouble_cf, reason,
+        ),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.error,
+        textAlign = TextAlign.Center,
+    )
+}
+
+private fun cfReasonText(trouble: CfTrouble): Int = when (trouble.reason) {
+    CfFailureReason.TIMEOUT -> R.string.cf_reason_timeout
+    CfFailureReason.RESET -> R.string.cf_reason_reset
+    CfFailureReason.TLS -> R.string.cf_reason_tls
+    // A Worker's own domain that doesn't resolve is almost always a typo.
+    CfFailureReason.DNS -> if (trouble.route == CfRoute.WORKER) R.string.cf_reason_worker_dns else R.string.cf_reason_dns
+    CfFailureReason.REFUSED -> R.string.cf_reason_refused
+    CfFailureReason.LIMIT -> R.string.cf_reason_limit
+    CfFailureReason.FORBIDDEN -> R.string.cf_reason_forbidden
+    CfFailureReason.SERVER_ERROR -> R.string.cf_reason_server_error
+    CfFailureReason.HTTP -> R.string.cf_reason_http
+    CfFailureReason.NETWORK -> R.string.cf_reason_network
+    CfFailureReason.OTHER -> R.string.cf_reason_other
 }
 
 /** Where connections went since start: straight to Telegram, or through Cloudflare. */

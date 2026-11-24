@@ -94,6 +94,7 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
             )
             StatusLine(status, vm.savedAddress())
             if (status.state == ProxyState.RUNNING) CfConnectionLine(saved)
+            if (status.state == ProxyState.RUNNING) CfTroubleLine(status)
             if (status.state == ProxyState.RUNNING) {
                 RouteChips(status)
                 StatTiles(status)

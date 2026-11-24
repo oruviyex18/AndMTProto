@@ -7,6 +7,8 @@ import socket
 import sys
 import time
 
+import pytest
+
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, 'android', 'app', 'src', 'main', 'python'))
@@ -629,3 +631,78 @@ def test_cf_failures_reset_at_each_start(tmp_path, monkeypatch):
     finally:
         android_entry.stop()
         cf_websocket.reset_cf_timeouts()
+
+
+def test_cf_failure_reasons_in_plain_kinds():
+    import socket as _socket
+    import ssl as _ssl
+    from proxy.raw_websocket import WsHandshakeError
+    reason = android_entry._cf_failure_reason
+    assert reason(asyncio.TimeoutError()) == "timeout"
+    assert reason(ConnectionResetError()) == "reset"
+    assert reason(_ssl.SSLEOFError()) == "reset"
+    assert reason(WsHandshakeError(0, "empty response")) == "reset"
+    assert reason(_ssl.SSLCertVerificationError()) == "tls"
+    assert reason(_socket.gaierror()) == "dns"
+    assert reason(ConnectionRefusedError()) == "refused"
+    assert reason(WsHandshakeError(429, "HTTP/1.1 429 Too Many Requests")) == "limit"
+    assert reason(WsHandshakeError(403, "HTTP/1.1 403 Forbidden")) == "forbidden"
+    assert reason(WsHandshakeError(500, "HTTP/1.1 500 Internal Server Error")) == "server_error"
+    assert reason(WsHandshakeError(404, "HTTP/1.1 404 Not Found")) == "http"
+    assert reason(OSError(101, "Network is unreachable")) == "network"
+
+
+def test_cf_recent_tells_cf_proxy_and_worker_apart(monkeypatch):
+    """Through the core's own code: CF proxy hosts are recorded by reason, the
+    user's Worker domains by their latest outcome; direct WebSockets aren't."""
+    from proxy import cf_websocket, pool
+    from proxy.raw_websocket import WsHandshakeError
+    _fake_cf_connect(monkeypatch, opens={"good.example"}, times_out={"slow.example"})
+    monkeypatch.setattr(android_entry.proxy_config, "cfproxy_worker_domains", ["w.example.workers.dev"])
+    monkeypatch.setattr(android_entry.proxy_config, "disable_secure", True)
+    from proxy import raw_websocket
+    cf_connect = raw_websocket.RawWebSocket.connect
+
+    async def connect(host, domain, **kwargs):
+        if host == "w.example.workers.dev":
+            raise WsHandshakeError(429, "HTTP/1.1 429 Too Many Requests")
+        if host == "149.154.167.220":
+            raise ConnectionResetError()
+        return await cf_connect(host, domain, **kwargs)
+    monkeypatch.setattr(raw_websocket.RawWebSocket, "connect", staticmethod(connect))
+    with android_entry._cf_events_lock:
+        android_entry._cf_events.clear()
+    try:
+        _connect_cf(_cf_hosts("slow.example", "good.example"))
+        worker = pool._CfWorkerPool()
+        assert asyncio.run(worker.connect_one(["w.example.workers.dev"], "149.154.167.51", 2)) is None
+        with pytest.raises(ConnectionResetError):
+            asyncio.run(pool.RawWebSocket.connect("149.154.167.220", "kws2.web.telegram.org"))
+        recent = android_entry._cf_recent(time.monotonic())
+        assert recent == {"cf": {"timeout": 1, "ok": 1}}
+        st = json.loads(android_entry.status())
+        assert st["cf_recent"] == recent
+        # The daily limit lasts until the reset: one 429 is enough to say so.
+        assert st["worker_trouble"] == "limit"
+    finally:
+        cf_websocket.reset_cf_timeouts()
+        with android_entry._cf_events_lock:
+            android_entry._cf_events.clear()
+            android_entry._worker_outcomes.clear()
+
+
+def test_worker_trouble_needs_every_worker_failing(monkeypatch):
+    monkeypatch.setattr(android_entry, "_worker_outcomes", {})
+    record, trouble = android_entry._record_worker, android_entry._worker_trouble
+    assert trouble() is None
+    record("a.workers.dev", "timeout")
+    assert trouble() is None  # one timeout can be a blip
+    record("a.workers.dev", "timeout")
+    assert trouble() == "timeout"
+    record("b.workers.dev", "ok")
+    assert trouble() is None  # another Worker still works
+    record("b.workers.dev", "server_error")
+    record("b.workers.dev", "server_error")
+    assert trouble() in ("timeout", "server_error")
+    record("a.workers.dev", "ok")
+    assert trouble() is None

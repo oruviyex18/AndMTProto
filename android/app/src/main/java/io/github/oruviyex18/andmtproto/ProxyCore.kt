@@ -52,6 +52,10 @@ data class ProxyStatus(
     /** CF proxy WebSockets that opened since start, and hosts that didn't open one. */
     val cfOk: Int = 0,
     val cfFailed: Int = 0,
+    /** CF proxy attempts in the last 2 minutes: route → outcome → count; see [cfTrouble]. */
+    val cfRecent: Map<String, Map<String, Int>> = emptyMap(),
+    /** Why the user's own Workers all fail, if they do (a [CfFailureReason] key). */
+    val workerTrouble: String? = null,
 )
 
 /**
@@ -286,6 +290,8 @@ object ProxyCore {
             bytesDown = o.getLong("bytes_down"),
             cfOk = o.optInt("cf_ok"),
             cfFailed = o.optInt("cf_failed"),
+            cfRecent = parseCfRecent(o.optJSONObject("cf_recent")),
+            workerTrouble = if (o.isNull("worker_trouble")) null else o.optString("worker_trouble"),
         ).also { _state.value = it }
     }
 }
