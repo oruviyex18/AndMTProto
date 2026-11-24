@@ -355,16 +355,20 @@ def test_status_counts_rejected_handshakes(tmp_path):
 
 
 def test_status_counts_cf_proxy_failures(tmp_path):
-    """cf_failed counts the core's "CF proxy failed" warnings (one per host that
-    didn't open), from zero at each start; cf_ok its CF connections that opened."""
+    """cf_failed counts the core's warnings for CF proxy hosts that didn't open
+    (failed, or timed out and put on cooldown), from zero at each start; cf_ok
+    its CF connections that opened."""
     import logging
     core_log = logging.getLogger("tg-mtproto-proxy")
     try:
         assert android_entry.start(_cfg(), str(tmp_path)) is None
         assert _wait(lambda: json.loads(android_entry.status())["listening"])
-        for _ in range(3):
-            core_log.warning("[%s] DC%d%s CF proxy failed: %r (host=%s port=%d)",
-                             "x", 1, "", TimeoutError(), "kws1.a.example", 443)
+        # The core's own wording (proxy/cf_websocket.py, 1.12.0).
+        for _ in range(2):
+            core_log.warning('[%s] CF WebSocket timed out (host=%s tls=%s); retry in %.0fs',
+                             "x", "kws1.a.example", True, 30.0)
+        core_log.warning('[%s] CF WebSocket failed (host=%s tls=%s): %r',
+                         "x", "kws1.b.example", False, ConnectionResetError())
         core_log.warning("[%s] DC%d no fallback available", "x", 1)
         android_entry.stats.connections_cfproxy += 1
         st = json.loads(android_entry.status())
@@ -542,3 +546,25 @@ def test_probe_request_is_req_pq_multi_for_dc2():
 def test_probe_cf_skipped_without_cf_proxy(monkeypatch):
     monkeypatch.setattr(android_entry.proxy_config, "fallback_cfproxy", False)
     assert json.loads(android_entry.probe_cf()) == {}
+
+
+def test_cf_failure_counter_sees_the_cores_own_warnings(monkeypatch):
+    """The counter matches the core's wording, so drive the core's real CF
+    connect code: a host that fails and a host that times out both count."""
+    from proxy import cf_websocket
+
+    async def connect(host, domain, **kwargs):
+        if host.startswith("kws2.slow"):
+            raise asyncio.TimeoutError()
+        raise ConnectionResetError()
+    monkeypatch.setattr(cf_websocket.RawWebSocket, "connect", staticmethod(connect))
+    cf_websocket.reset_cf_timeouts()
+    before = android_entry._cf_failures.count
+    try:
+        result = asyncio.run(cf_websocket.connect_cf_domains(
+            [("bad.example", "kws2.bad.example"), ("slow.example", "kws2.slow.example")],
+            label="t", secure=False))
+    finally:
+        cf_websocket.reset_cf_timeouts()
+    assert result is None
+    assert android_entry._cf_failures.count - before == 2

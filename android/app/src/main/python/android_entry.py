@@ -349,16 +349,23 @@ def _run_proxy_thread(stop_requested: threading.Event) -> None:
 
 
 class _CfFailureCounter(logging.Handler):
-    """Counts the core's "CF proxy failed" warnings: one per CF proxy host that
-    didn't open a WebSocket. The core counts only the connections that did
-    (stats.connections_cfproxy), and its code stays unedited."""
+    """Counts the core's warnings for CF proxy hosts that didn't open a
+    WebSocket (cf_websocket.connect_cf_domains, since 1.12.0): "CF WebSocket
+    failed", and "CF WebSocket timed out", which the core logs when it puts a
+    host and TLS mode on its 30 s cooldown (it then skips that pair without a
+    word). The core counts only the connections that opened
+    (stats.connections_cfproxy), and its code stays unedited. Review the
+    messages whenever upstream changes cf_websocket.py."""
+
+    MESSAGES = ("CF WebSocket failed", "CF WebSocket timed out")
 
     def __init__(self) -> None:
         super().__init__(logging.WARNING)
         self.count = 0
 
     def emit(self, record: logging.LogRecord) -> None:
-        if "CF proxy failed" in str(record.msg):
+        msg = str(record.msg)
+        if any(m in msg for m in self.MESSAGES):
             self.count += 1
 
 

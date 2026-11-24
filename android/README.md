@@ -118,13 +118,17 @@ When reviewing a sync PR:
    `_refill_after`, `try_fronting_first`, `_quiet_close`, `warmup()`) and wraps `ws_pool.get()`;
    check `_pause_pool`, `_ws_on_demand` and `install()` still match, and run
    `test_ws_pool_control.py`.
-5. **New import or version pin in `pyproject.toml` that `proxy/` uses:** add it to
+5. **CF proxy connect code changed** (`proxy/cf_websocket.py`, `_cfproxy_fallback` in
+   `proxy/bridge.py`): the automatic CF recheck counts failed CF hosts by the core's warning
+   text (`_CfFailureCounter.MESSAGES` in `android_entry.py`). Check the wording still matches;
+   `test_cf_failure_counter_sees_the_cores_own_warnings` drives the core's own code.
+6. **New import or version pin in `pyproject.toml` that `proxy/` uses:** add it to
    `app/requirements.txt` (Chaquopy and CI both install from it). A native package needs an
    Android wheel from Chaquopy's index.
-6. **`icon.ico` changed:** regenerate the launcher and notification icons with
+7. **`icon.ico` changed:** regenerate the launcher and notification icons with
    `pip install Pillow && python android/tools/make_icons.py`, then commit `android/app/src/main/res`.
-7. **Only desktop files changed** (`windows.py`, `ui/`, `utils/`, packaging): nothing to do.
-8. Install the APK, connect Telegram, and check that chats and media load. Then set the
+8. **Only desktop files changed** (`windows.py`, `ui/`, `utils/`, packaging): nothing to do.
+9. Install the APK, connect Telegram, and check that chats and media load. Then set the
    version as in [Releasing](#releasing) step 1 and merge with a merge commit (not squash),
    so upstream's commits stay in `main`'s history.
    `versionName` follows upstream's `__version__` automatically.
