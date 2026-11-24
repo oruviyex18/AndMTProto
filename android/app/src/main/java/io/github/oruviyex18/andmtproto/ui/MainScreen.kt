@@ -65,6 +65,7 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
     val saved by vm.saved.collectAsStateWithLifecycle()
     val miuiBackgroundDone by vm.miuiBackgroundDone.collectAsStateWithLifecycle()
     val miuiAutostartDone by vm.miuiAutostartDone.collectAsStateWithLifecycle()
+    val oemAutostartDone by vm.oemAutostartDone.collectAsStateWithLifecycle()
     val startProxy = rememberProxyStarter()
     var logShown by rememberSaveable { mutableStateOf(false) }
 
@@ -121,6 +122,7 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
             }
             BatteryCard(dismissed = miuiBackgroundDone, onDismiss = vm::markMiuiBackgroundDone)
             MiuiAutostartCard(dismissed = miuiAutostartDone, onDismiss = vm::markMiuiAutostartDone)
+            OemAutostartCard(dismissed = oemAutostartDone, onDismiss = vm::markOemAutostartDone)
             UpdateSection(
                 state = updater,
                 available = update,
