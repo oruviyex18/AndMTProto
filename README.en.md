@@ -48,7 +48,7 @@
 ## Contents
 
 - **🚀 [Quick start](#quick-start)**
-- [Setting up a Cloudflare Worker (a free alternative to the CF proxy)](./docs/EN/CfWorker.md)
+- [Setting up your own Cloudflare Worker (a free alternative to the CF proxy; connects only to Telegram)](./android/docs/cf-worker-en.md)
 - [Setting up a Cloudflare domain (CF proxy)](./docs/EN/CfProxy.md)
 - [Telegram test environment (test DCs)](./docs/EN/TestDc.md)
 - [Fake TLS + upstream in Nginx](./docs/EN/FakeTlsNginx.md)

@@ -48,7 +48,7 @@
 ## Навигация
 
 - **🚀 [Быстрый старт](#быстрый-старт)**
-- [Настройка Cloudflare Worker'а (бесплатный аналог CF-прокси)](./docs/RU/CfWorker.md)
+- [Настройка своего Cloudflare Worker (бесплатный аналог CF-прокси; соединяется только с Telegram)](./android/docs/cf-worker-ru.md)
 - [Настройка Cloudflare-домена (CF-прокси)](./docs/RU/CfProxy.md)
 - [Тестовое окружение Telegram (тестовые DC)](./docs/RU/TestDc.md)
 - [Fake TLS + upstream в Nginx](./docs/RU/FakeTlsNginx.md)

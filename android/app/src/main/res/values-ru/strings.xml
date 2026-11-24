@@ -51,7 +51,7 @@
     <string name="cf_hint">Если медиа или некоторые каналы грузятся медленно, общий CF proxy, скорее всего, перегружен. Помогает свой бесплатный Cloudflare Worker или свой домен CF.</string>
     <string name="cf_worker_guide">Инструкция CF Worker</string>
     <string name="cf_proxy_guide">Инструкция для домена CF</string>
-    <string name="cf_worker_guide_url">https://github.com/Flowseal/tg-ws-proxy/blob/main/docs/RU/CfWorker.md</string>
+    <string name="cf_worker_guide_url">https://github.com/oruviyex18/AndMTProto/blob/main/android/docs/cf-worker-ru.md</string>
     <string name="cf_proxy_guide_url">https://github.com/Flowseal/tg-ws-proxy/blob/main/docs/RU/CfProxy.md</string>
     <string name="fake_tls">Домен Fake TLS (необязательно)</string>
     <string name="force_test_dc">Принудительно тестовые DC</string>

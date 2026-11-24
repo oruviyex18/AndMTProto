@@ -25,6 +25,7 @@ listens on `127.0.0.1:1443`, and the Telegram app connects to it as an MTProto p
 | `tests/test_android_entry.py` | Desktop pytest for the adapter against the real `proxy/`. |
 | `tests/test_ws_pool_control.py`, `tests/test_tls_bypass.py` | Desktop pytest for the two modules above. |
 | `tests/core_helpers.py` | Helpers for the tests that start the real core. |
+| `cf-worker/worker.js`, `docs/cf-worker-*.md` | Our Cloudflare Worker (relays only to Telegram's networks) and its setup guide, linked from the app. Tests: `node --test android/cf-worker/worker.test.mjs`. |
 
 ## Build
 
