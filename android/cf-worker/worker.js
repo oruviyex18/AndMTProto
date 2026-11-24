@@ -128,18 +128,18 @@ async function relay(server, dst) {
   let socket;
   try {
     socket = connect({ hostname: dst, port: TELEGRAM_PORT });
-    await withTimeout(socket.opened, CONNECT_TIMEOUT_MS);
   } catch {
-    try {
-      socket?.close();
-    } catch {}
     closeQuietly(server, 1011, "telegram unreachable");
     return;
   }
+  const opened = withTimeout(socket.opened, CONNECT_TIMEOUT_MS);
 
   const writer = socket.writable.getWriter();
   let pending = 0;
-  let writes = Promise.resolve();
+  // The proxy sends its first bytes right after the upgrade, while the TCP
+  // connect to Telegram is still under way: the listeners below are added at
+  // once, and the first write waits for the connect.
+  let writes = opened.catch(() => {});
   let closed = false;
 
   const shutDown = (code, reason) => {
@@ -176,6 +176,12 @@ async function relay(server, dst) {
   server.addEventListener("close", () => shutDown(1000, "closed"));
   server.addEventListener("error", () => shutDown(1011, "websocket error"));
 
+  try {
+    await opened;
+  } catch {
+    shutDown(1011, "telegram unreachable");
+    return;
+  }
   const reader = socket.readable.getReader();
   try {
     while (!closed) {

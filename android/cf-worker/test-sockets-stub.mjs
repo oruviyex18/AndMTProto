@@ -9,6 +9,7 @@ export function reset(opts = {}) {
 
 export function connect(address) {
   let replyController;
+  let openNow;
   const socket = {
     address,
     written: [],
@@ -23,7 +24,11 @@ export function connect(address) {
         socket.written.push(...chunk);
       },
     }),
-    opened: options.failOpen ? Promise.reject(new Error("refused")) : Promise.resolve({}),
+    opened: options.failOpen ? Promise.reject(new Error("refused"))
+      : options.delayOpen ? new Promise((resolve) => { openNow = resolve; }) : Promise.resolve({}),
+    open() {
+      openNow({});
+    },
     reply(bytes) {
       replyController.enqueue(bytes);
     },

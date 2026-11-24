@@ -123,3 +123,19 @@ test("too much queued for a stalled DC closes the connection instead of filling 
   await tick();
   assert.equal(server.closedWith.code, 1013);
 });
+
+test("bytes the proxy sends before Telegram's connect finishes still go out, in order", async () => {
+  // The core sends its obfuscated start and first request right after the upgrade.
+  sockets.reset({ delayOpen: true });
+  await worker.fetch(wsRequest("/apiws?dst=149.154.167.51"));
+  const server = globalThis.lastServer;
+  server.emit("message", { data: new Uint8Array([1, 2]) });
+  server.emit("message", { data: new Uint8Array([3]) });
+  await tick();
+  const tcp = sockets.opened[0];
+  assert.deepEqual(tcp.written, [], "nothing written before the connect");
+  tcp.open();
+  await tick();
+  assert.deepEqual(tcp.written, [1, 2, 3]);
+  assert.equal(server.closedWith, null);
+});
