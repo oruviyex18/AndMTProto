@@ -1,4 +1,6 @@
 // AndMTProto Cloudflare Worker: carries the proxy's connections to Telegram.
+// (The app tells its own Worker from another by the first three words above:
+// keep them, or change WorkerSetup.SCRIPT_MARKER and its test along with them.)
 //
 // The proxy opens a WebSocket to https://<worker>/apiws?dst=<Telegram DC IP>&dc=<N>
 // and this Worker opens a TCP connection to that address on port 443 and copies

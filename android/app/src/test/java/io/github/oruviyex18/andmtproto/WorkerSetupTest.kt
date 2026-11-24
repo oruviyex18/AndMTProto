@@ -119,6 +119,13 @@ class WorkerSetupTest {
     }
 
     @Test
+    fun theBundledWorkerCarriesTheMarkerTheAppLooksFor() {
+        // Unit tests run in android/app; the asset is copied from android/cf-worker at build time.
+        val script = java.io.File("../cf-worker/worker.js").readText()
+        assertTrue("worker.js must keep \"${WorkerSetup.SCRIPT_MARKER}\"", script.contains(WorkerSetup.SCRIPT_MARKER))
+    }
+
+    @Test
     fun ourOwnWorkerIsUpdatedButSomeoneElsesIsLeftAlone() {
         val ours = FakeCloudflare(existingScript = "// AndMTProto Cloudflare Worker: carries the proxy's connections\nexport default {}")
         assertEquals(WorkerSetup.Result.Created("andmtproto.alice.workers.dev"), WorkerSetup.createBlocking(ours, "new"))
