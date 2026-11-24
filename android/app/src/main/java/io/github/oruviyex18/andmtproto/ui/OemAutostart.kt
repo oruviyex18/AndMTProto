@@ -40,10 +40,14 @@ enum class OemAutostart(@StringRes val hint: Int, val screens: List<Pair<String,
         ),
     ),
 
-    /** Oppo, Realme and OnePlus (ColorOS, realme UI, OxygenOS 12+): Auto launch. */
+    /**
+     * Oppo, Realme and OnePlus (ColorOS, realme UI, OxygenOS 12+): Auto launch. OnePlus
+     * phones still on OxygenOS 11 or older have their own screen, tried first.
+     */
     COLOROS(
         R.string.oem_autostart_coloros,
         listOf(
+            "com.oneplus.security" to "com.oneplus.security.chainlaunch.view.ChainLaunchAppListActivity",
             "com.oplus.safecenter" to "com.oplus.safecenter.permission.startup.StartupAppListActivity",
             "com.coloros.safecenter" to "com.coloros.safecenter.permission.startup.StartupAppListActivity",
             "com.coloros.safecenter" to "com.coloros.safecenter.startupapp.StartupAppListActivity",
