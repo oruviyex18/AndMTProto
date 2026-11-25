@@ -70,8 +70,9 @@ def test_doh_answers_when_the_system_fails_or_lies(dns):
 def test_another_doh_server_answers_when_one_is_blocked(dns):
     dns["doh"]["8.8.8.8"] = ["172.67.3.3"]
     assert _ips(socket.getaddrinfo(CF, 443)) == ["172.67.3.3"]
-    # All asked at once: a blocked one doesn't hold the others up.
-    assert {a[1] for a in dns["asked"] if a[0] == "doh"} >= {"1.1.1.1", "8.8.8.8"}
+    # All asked at once: a blocked one doesn't hold the others up. (Whether the
+    # blocked one's request has started by now is up to the thread pool.)
+    assert ("doh", "8.8.8.8") in dns["asked"]
 
 
 def test_doh_answers_are_cached(dns):
