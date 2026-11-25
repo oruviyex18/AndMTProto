@@ -214,6 +214,34 @@ object ProxyCore {
         }
     }
 
+    /**
+     * One way to Telegram from [checkRoutes]: [route] is "direct", "cf_bypass",
+     * "cf_tls", "cf_plain" or "workerN"; [ms] until Telegram answered, null if it
+     * didn't; [full]: the large check passed (null where it isn't run).
+     */
+    data class RouteCheck(val route: String, val ok: Boolean, val ms: Int?, val full: Boolean?)
+
+    /**
+     * Checks every way to Telegram with a real request (android_entry.check_routes,
+     * up to ~20 s) off the lifecycle thread; empty when the core isn't running.
+     */
+    suspend fun checkRoutes(): List<RouteCheck> = withContext(Dispatchers.IO) {
+        try {
+            val a = org.json.JSONArray(module.callAttr("check_routes").toString())
+            List(a.length()) { i ->
+                val o = a.getJSONObject(i)
+                RouteCheck(
+                    o.getString("route"), o.getBoolean("ok"),
+                    if (o.isNull("ms")) null else o.getInt("ms"),
+                    if (o.isNull("full")) null else o.getBoolean("full"),
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Route check failed", e)
+            emptyList()
+        }
+    }
+
     /** Reads the current status from Python and publishes it to [state]. */
     suspend fun poll(): ProxyStatus = withContext(dispatcher) { readStatus() }
 

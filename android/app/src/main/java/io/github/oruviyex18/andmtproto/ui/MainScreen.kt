@@ -68,6 +68,7 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
     val oemAutostartDone by vm.oemAutostartDone.collectAsStateWithLifecycle()
     val startProxy = rememberProxyStarter()
     var logShown by rememberSaveable { mutableStateOf(false) }
+    var routesShown by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -121,6 +122,9 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
                     onCopy = { vm.link()?.let(context::copyToClipboard) },
                 )
             }
+            if (status.state == ProxyState.RUNNING) {
+                TextButton(onClick = { routesShown = true }) { Text(stringResource(R.string.route_check_open)) }
+            }
             BatteryCard(dismissed = miuiBackgroundDone, onDismiss = vm::markMiuiBackgroundDone)
             MiuiAutostartCard(dismissed = miuiAutostartDone, onDismiss = vm::markMiuiAutostartDone)
             OemAutostartCard(dismissed = oemAutostartDone, onDismiss = vm::markOemAutostartDone)
@@ -136,6 +140,7 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
         }
     }
     if (logShown) LogSheet(onDismiss = { logShown = false })
+    if (routesShown) RouteCheckDialog(onDismiss = { routesShown = false })
 
     (updater as? AppUpdater.State.UpToDate)?.let { upToDate ->
         LaunchedEffect(upToDate) {

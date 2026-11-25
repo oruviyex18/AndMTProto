@@ -196,4 +196,19 @@
     <string name="update_retry">Retry</string>
     <string name="update_in_browser">In browser</string>
     <string name="update_close">Close</string>
+    <string name="route_check_open">Check routes</string>
+    <string name="route_check_title">Routes to Telegram</string>
+    <string name="route_checking">Checking every route with a real request to Telegram… up to 20 seconds</string>
+    <string name="route_not_running">Start the proxy first.</string>
+    <string name="route_direct">Direct WebSocket</string>
+    <string name="route_cf_bypass">CF: TLS with the bypass</string>
+    <string name="route_cf_tls">CF: plain TLS</string>
+    <string name="route_cf_plain">CF: no TLS (port 80)</string>
+    <string name="route_worker">Your CF Worker %1$s</string>
+    <string name="route_works">works, answer in %1$d ms</string>
+    <string name="route_cut_off">answers in %1$d ms, but cuts off after about 16 KB</string>
+    <string name="route_no_answer">no answer</string>
+    <string name="route_check_note">Each route is checked through DC 2 once, so the result can differ from one moment to the next. The proxy uses the direct route first and the CF ones when it fails.</string>
+    <string name="route_again">Check again</string>
+    <string name="route_close">Close</string>
 </resources>

@@ -192,4 +192,19 @@
     <string name="update_retry">Повторить</string>
     <string name="update_in_browser">В браузере</string>
     <string name="update_close">Закрыть</string>
+    <string name="route_check_open">Проверить маршруты</string>
+    <string name="route_check_title">Маршруты до Telegram</string>
+    <string name="route_checking">Проверяю каждый маршрут настоящим запросом к Telegram… до 20 секунд</string>
+    <string name="route_not_running">Сначала запустите прокси.</string>
+    <string name="route_direct">Прямой WebSocket</string>
+    <string name="route_cf_bypass">CF: TLS с обходом</string>
+    <string name="route_cf_tls">CF: обычный TLS</string>
+    <string name="route_cf_plain">CF: без TLS (порт 80)</string>
+    <string name="route_worker">Ваш CF Worker %1$s</string>
+    <string name="route_works">работает, ответ за %1$d мс</string>
+    <string name="route_cut_off">отвечает за %1$d мс, но обрывается примерно после 16 КБ</string>
+    <string name="route_no_answer">нет ответа</string>
+    <string name="route_check_note">Каждый маршрут проверяется один раз через DC 2, поэтому результат может меняться от раза к разу. Прокси сначала использует прямой маршрут, а CF — когда он не работает.</string>
+    <string name="route_again">Проверить ещё раз</string>
+    <string name="route_close">Закрыть</string>
 </resources>
