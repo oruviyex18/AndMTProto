@@ -89,6 +89,11 @@
     <string name="worker_setup_api">Cloudflare вернул ошибку</string>
     <string name="cf_proxy_guide_url">https://github.com/Flowseal/tg-ws-proxy/blob/main/docs/RU/CfProxy.md</string>
     <string name="fake_tls">Домен Fake TLS (необязательно)</string>
+    <string name="cf_doh">Адреса Cloudflare через DNS over HTTPS</string>
+    <string name="cf_doh_hint">AndMTProto узнаёт адреса CF-прокси и Worker у 1.1.1.1 или 8.8.8.8 по HTTPS. Без этого — только если DNS провайдера не отвечает или выдаёт негодный адрес.</string>
+    <string name="cf_ip">IP Cloudflare (необязательно)</string>
+    <string name="cf_ip_hint">Один адрес Cloudflare для всех CF-подключений, например тот, что работает в вашей сети. Пусто — как обычно.</string>
+    <string name="error_bad_cf_ip">IP Cloudflare: %1$s — не IP-адрес</string>
     <string name="force_test_dc">Принудительно тестовые DC</string>
     <string name="verbose">Подробный лог</string>
     <string name="check_updates_daily">Ежедневно проверять обновления</string>
@@ -146,7 +151,7 @@
     <string name="section_masking">Маскировка</string>
     <string name="section_app">Приложение</string>
     <string name="section_advanced">Дополнительно</string>
-    <string name="advanced_show">Дополнительно: пул, буфер, лог ▾</string>
+    <string name="advanced_show">Дополнительно: пул, буфер, DNS, лог ▾</string>
     <string name="advanced_hide">Скрыть дополнительные ▴</string>
     <string name="secret_show">Показать</string>
     <string name="secret_hide">Скрыть</string>

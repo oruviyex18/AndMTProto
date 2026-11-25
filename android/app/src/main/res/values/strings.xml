@@ -93,6 +93,11 @@
     <string name="worker_setup_api">Cloudflare returned an error</string>
     <string name="cf_proxy_guide_url">https://github.com/Flowseal/tg-ws-proxy/blob/main/docs/EN/CfProxy.md</string>
     <string name="fake_tls">Fake TLS domain (optional)</string>
+    <string name="cf_doh">Cloudflare names through DNS over HTTPS</string>
+    <string name="cf_doh_hint">AndMTProto asks 1.1.1.1 or 8.8.8.8 over HTTPS for the CF proxy and Worker addresses. Without this, it does so only when the provider\'s DNS does not answer or gives an unusable address.</string>
+    <string name="cf_ip">Cloudflare IP (optional)</string>
+    <string name="cf_ip_hint">One Cloudflare address for all CF connections, e.g. one that works on your network. Empty: as usual.</string>
+    <string name="error_bad_cf_ip">Cloudflare IP: %1$s is not an IP address</string>
     <string name="force_test_dc">Force test DCs</string>
     <string name="verbose">Verbose logging</string>
     <string name="check_updates_daily">Check for updates daily</string>
@@ -150,7 +155,7 @@
     <string name="section_masking">Masking</string>
     <string name="section_app">App</string>
     <string name="section_advanced">Advanced</string>
-    <string name="advanced_show">Advanced: pool, buffer, log ▾</string>
+    <string name="advanced_show">Advanced: pool, buffer, DNS, log ▾</string>
     <string name="advanced_hide">Hide advanced ▴</string>
     <string name="secret_show">Show</string>
     <string name="secret_hide">Hide</string>

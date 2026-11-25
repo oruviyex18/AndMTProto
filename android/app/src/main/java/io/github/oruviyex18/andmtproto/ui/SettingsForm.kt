@@ -69,6 +69,7 @@ data class SettingsDraft(
                 poolSize = poolSize,
                 bufKb = bufKb,
                 fakeTlsDomain = settings.fakeTlsDomain.trim(),
+                cfIp = settings.cfIp.trim(),
                 tlsStrategy = settings.tlsStrategy.trim().ifEmpty { TlsStrategies.DEFAULT },
             )
         )
@@ -151,6 +152,16 @@ fun SettingsForm(draft: SettingsDraft, onChange: (SettingsDraft) -> Unit, onShow
                     onChange(draft.copy(bufKb = it))
                 }
             }
+            Toggle(s.cfDoh, R.string.cf_doh) { v -> edit { copy(cfDoh = v) } }
+            Text(stringResource(R.string.cf_doh_hint), style = MaterialTheme.typography.bodySmall)
+            OutlinedTextField(
+                value = s.cfIp, onValueChange = { v -> edit { copy(cfIp = v) } }, singleLine = true,
+                label = { Text(stringResource(R.string.cf_ip)) },
+                supportingText = { Text(stringResource(R.string.cf_ip_hint)) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+                keyboardActions = closeKeyboardOnDone(),
+                modifier = Modifier.fillMaxWidth(),
+            )
             Toggle(s.forceTestDc, R.string.force_test_dc) { v -> edit { copy(forceTestDc = v) } }
             Toggle(s.verbose, R.string.verbose) { v -> edit { copy(verbose = v) } }
         }
