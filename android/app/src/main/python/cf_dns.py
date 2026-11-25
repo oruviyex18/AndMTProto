@@ -108,8 +108,22 @@ def _usable(results: List[Any]) -> bool:
     return False
 
 
+def _port_number(port: Any) -> int:
+    """A port as the system's getaddrinfo takes it: a number, a numeric string,
+    a service name ("https") or None."""
+    if port in (None, "", b""):
+        return 0
+    text = port.decode("ascii", "ignore") if isinstance(port, bytes) else str(port)
+    if text.isdigit():
+        return int(text)
+    try:
+        return socket.getservbyname(text, "tcp")
+    except OSError:
+        raise socket.gaierror(socket.EAI_SERVICE, "unknown service") from None
+
+
 def _results(ips: List[str], port: Any, family: int, type_: int, proto: int) -> List[Any]:
-    port_number = int(port) if port not in (None, "") else 0
+    port_number = _port_number(port)
     out = []
     for ip in ips:
         fam = socket.AF_INET6 if ":" in ip else socket.AF_INET

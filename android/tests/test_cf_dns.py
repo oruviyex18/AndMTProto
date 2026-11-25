@@ -211,3 +211,11 @@ def test_the_system_is_asked_again_when_doh_fails_too(dns):
     assert _ips(socket.getaddrinfo("kws4.example-cf.com", 443)) == ["10.10.34.35"]
     # Skipped as first choice now, but still the answer when DoH has none.
     assert _ips(socket.getaddrinfo("kws4.example-cf.com", 443)) == ["10.10.34.35"]
+
+
+def test_ports_by_number_or_service_name(dns):
+    cf_dns.configure(lambda: ["example-cf.com"], cf_ip="104.16.0.1")
+    for port, number in ((443, 443), ("443", 443), ("https", 443), (None, 0)):
+        assert socket.getaddrinfo(CF, port)[0][4] == ("104.16.0.1", number)
+    with pytest.raises(socket.gaierror):
+        socket.getaddrinfo(CF, "no-such-service")
