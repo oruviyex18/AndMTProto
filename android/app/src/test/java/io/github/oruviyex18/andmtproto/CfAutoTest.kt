@@ -116,4 +116,28 @@ class CfAutoTest {
         ways.clear()
         assertEquals(emptySet<CfTransport>(), ways.on("wifi"))
     }
+
+    @Test
+    fun onlyCfConnectionsOpenedDuringTheStallCount() {
+        val stalls = StallDetector()
+        // CF connections that carried data earlier don't make a later stall a CF one.
+        stalls.update(ProxyStatus(total = 5, cfOk = 4, bytesDown = 100), 0)
+        assertTrue(stalls.update(ProxyStatus(total = 9, cfOk = 4, bytesDown = 100), 61_000))
+        assertEquals(0, stalls.cfOpened)
+        assertTrue(stalls.update(ProxyStatus(total = 10, cfOk = 6, bytesDown = 100), 62_000))
+        assertEquals(2, stalls.cfOpened)
+        stalls.update(ProxyStatus(total = 11, cfOk = 7, bytesDown = 200), 63_000)
+        assertEquals("bytes came back", 0, stalls.cfOpened)
+    }
+
+    @Test
+    fun stallStepsInOrder() {
+        val bypass = CfTransport.BYPASS
+        assertEquals(CfStallStep.NONE, cfStallStep(false, false, 5, bypass, emptySet()))
+        assertEquals(CfStallStep.RECHECK, cfStallStep(true, false, 5, bypass, emptySet()))
+        assertEquals(CfStallStep.SET_ASIDE, cfStallStep(true, true, 5, bypass, emptySet()))
+        assertEquals("no CF connection during the stall", CfStallStep.NONE, cfStallStep(true, true, 0, bypass, emptySet()))
+        assertEquals("already set aside", CfStallStep.NONE, cfStallStep(true, true, 5, bypass, setOf(bypass)))
+        assertEquals(CfStallStep.SET_ASIDE, cfStallStep(true, true, 5, CfTransport.PLAIN, setOf(bypass)))
+    }
 }

@@ -250,18 +250,23 @@ class ProxyService : Service() {
         if (!stuck) return false
         if (cfCheckJob?.isActive == true) return false // its result decides what comes next
         val on = network ?: connectivity.activeNetwork
-        if (on != null && on != stallCheckedOn && settings.cfproxy && settings.cfAuto) {
+        val step = cfStallStep(
+            auto = on != null && settings.cfproxy && settings.cfAuto,
+            checkedHere = on == stallCheckedOn,
+            cfOpened = stalls.cfOpened,
+            current = settings.cfTransport,
+            stalled = on?.let { stalledWays.on(it) } ?: emptySet(),
+        )
+        if (on != null && step == CfStallStep.RECHECK) {
             stallCheckedOn = on
             launchCheckCf(on, fresh = true)
             return false
         }
-        // CF connections opened, so it's the way to the CF proxy that carries nothing.
-        if (on != null && settings.cfproxy && settings.cfAuto && status.cfOk > 0 &&
+        if (on != null && step == CfStallStep.SET_ASIDE) {
             stalledWays.add(on, settings.cfTransport)
-        ) {
             ProxyCore.note(
                 "Nothing gets through over ${label(settings.cfTransport)} on ${describeNetwork(on)} " +
-                    "although the check passes it; trying the next way that works"
+                    "although ${stalls.cfOpened} CF connections opened; trying another way"
             )
             launchCheckCf(on, fresh = false)
             return false
@@ -343,14 +348,19 @@ class ProxyService : Service() {
             return
         }
         noteProbe(on, probe)
-        val stalled = stalledWays.on(on)
-        val (target, cutOff) = chooseCfTransport(probe, stalled)
+        // What the check says on its own decides the cards and the cut-off state; the
+        // ways set aside only change which of the working ways is used.
+        val (anyWay, cutOff) = chooseCfTransport(probe)
+        val target = chooseCfTransport(probe, stalledWays.on(on)).target
         ProxyCore.setCfCheck(
-            ProxyCore.CfCheck(on, describeNetwork(on), System.currentTimeMillis(), target, cutOff)
+            ProxyCore.CfCheck(
+                on, describeNetwork(on), System.currentTimeMillis(),
+                target ?: anyWay?.let { settings.cfTransport }, cutOff,
+            )
         )
         if (target == null) {
             ProxyCore.note(
-                (if (stalled.isEmpty()) "No way to reach the CF proxy works" else "No other way to reach the CF proxy works") +
+                (if (anyWay == null) "No way to reach the CF proxy works" else "No other way to reach the CF proxy works") +
                     " on ${describeNetwork(on)}; keeping ${label(settings.cfTransport)}"
             )
             return

@@ -23,9 +23,14 @@ internal class StallDetector(
     private var lastProgressAt = -1L
     private var totalAtProgress = 0
     private var bytesDown = 0L
+    private var cfOkAtProgress = 0
 
     /** The last [update] saw bytes coming back. */
     var progressed = false
+        private set
+
+    /** CF proxy connections that opened since bytes last came back. */
+    var cfOpened = 0
         private set
 
     /** Feeds one status sample taken at [now] (ms); true while the proxy looks stuck. */
@@ -35,8 +40,11 @@ internal class StallDetector(
             lastProgressAt = now
             totalAtProgress = status.total
             bytesDown = status.bytesDown
+            cfOkAtProgress = status.cfOk
+            cfOpened = 0
             return false
         }
+        cfOpened = status.cfOk - cfOkAtProgress
         return now - lastProgressAt >= windowMs && status.total - totalAtProgress >= minAttempts
     }
 }
@@ -69,6 +77,34 @@ internal class StalledWays {
         network = null
         ways.clear()
     }
+}
+
+/** What "Choose automatically" does first about a stall; see [cfStallStep]. */
+internal enum class CfStallStep {
+    /** Check the CF connection again: blocking can start mid-session. */
+    RECHECK,
+
+    /** The way in use carries nothing although CF connections open: try another. */
+    SET_ASIDE,
+
+    /** Nothing for the CF choice to do: the watchdog goes on (restart, then the card). */
+    NONE,
+}
+
+/**
+ * The first step for a stall in "Choose automatically" ([auto]: on, with the CF
+ * proxy and a network): a recheck once per network ([checkedHere]: done on this
+ * one), then, if CF connections opened during the stall ([cfOpened]) and still
+ * nothing came back, setting the way in use ([current]) aside unless it already is.
+ */
+internal fun cfStallStep(
+    auto: Boolean, checkedHere: Boolean, cfOpened: Int,
+    current: CfTransport, stalled: Set<CfTransport>,
+): CfStallStep = when {
+    !auto -> CfStallStep.NONE
+    !checkedHere -> CfStallStep.RECHECK
+    cfOpened > 0 && current !in stalled -> CfStallStep.SET_ASIDE
+    else -> CfStallStep.NONE
 }
 
 /**
