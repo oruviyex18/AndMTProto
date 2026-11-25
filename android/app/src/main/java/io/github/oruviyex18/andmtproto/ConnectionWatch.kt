@@ -23,9 +23,14 @@ internal class StallDetector(
     private var lastProgressAt = -1L
     private var totalAtProgress = 0
     private var bytesDown = 0L
+    private var cfOkAtProgress = 0
 
     /** The last [update] saw bytes coming back. */
     var progressed = false
+        private set
+
+    /** CF proxy connections that opened since bytes last came back. */
+    var cfOpened = 0
         private set
 
     /** Feeds one status sample taken at [now] (ms); true while the proxy looks stuck. */
@@ -35,10 +40,101 @@ internal class StallDetector(
             lastProgressAt = now
             totalAtProgress = status.total
             bytesDown = status.bytesDown
+            cfOkAtProgress = status.cfOk
+            cfOpened = 0
             return false
         }
+        cfOpened = status.cfOk - cfOkAtProgress
         return now - lastProgressAt >= windowMs && status.total - totalAtProgress >= minAttempts
     }
+}
+
+/**
+ * The CF ways that "Choose automatically" saw carry nothing on a network although
+ * its check passed them. On GPB Mobile on 25 Nov 2026 the check kept passing TLS
+ * with the bypass (Telegram answered, and over 24 KB went each way), but Telegram's
+ * own connections got nothing back for 20 minutes, while no TLS carried 700 KB in a
+ * minute: the watchdog restarted the core three times and the check picked the
+ * bypass again each time (on 24 Nov the same stall lasted two hours, with nine
+ * restarts). Kept for one network ([on]); another network starts empty. A way stays
+ * set aside for [keepMs], also across the user's stops and starts, so each start
+ * doesn't wait through the stall again; a reboot starts afresh.
+ */
+internal class StalledWays(private val keepMs: Long = 6 * 60 * 60_000L) {
+    private var network: Any? = null
+    private val since = mutableMapOf<CfTransport, Long>()
+
+    /** The ways set aside on [on] at [now] (ms, elapsedRealtime). */
+    fun on(on: Any, now: Long): Set<CfTransport> =
+        if (on != network) emptySet() else since.filterValues { now - it < keepMs }.keys
+
+    /** Sets [way] aside on [on] at [now]; false if it already was. */
+    fun add(on: Any, way: CfTransport, now: Long): Boolean {
+        if (on != network) {
+            network = on
+            since.clear()
+        }
+        if (way in on(on, now)) return false
+        since[way] = now
+        return true
+    }
+
+    /** Takes [way] back on [on]: it's the only way the check still passes. */
+    fun remove(on: Any, way: CfTransport) {
+        if (on == network) since.remove(way)
+    }
+}
+
+/**
+ * What a CF check leads to: the way to use ([target], null when none works),
+ * whether the network cuts every way off ([cutOff], from the check alone), and
+ * whether [target] was set aside and is taken back ([takeBack]).
+ */
+internal data class CfOutcome(val target: CfTransport?, val cutOff: Boolean, val takeBack: Boolean = false)
+
+/**
+ * The way "Choose automatically" uses after a check: the first that works of those
+ * not set aside ([stalled]). When only set-aside ways pass, it keeps [current] if the
+ * check passes it, else takes back the first set-aside way that works: a way that
+ * stalled once beats one the check fails now (port 80 blocked later, say).
+ */
+internal fun cfCheckOutcome(probe: ProxyCore.CfProbe, stalled: Set<CfTransport>, current: CfTransport): CfOutcome {
+    val all = chooseCfTransport(probe)
+    val rest = chooseCfTransport(probe, stalled).target
+    return when {
+        rest != null -> CfOutcome(rest, all.cutOff)
+        all.target == null -> CfOutcome(null, all.cutOff)
+        probe.works(current) -> CfOutcome(current, all.cutOff)
+        else -> CfOutcome(all.target, all.cutOff, takeBack = true)
+    }
+}
+
+/** What "Choose automatically" does first about a stall; see [cfStallStep]. */
+internal enum class CfStallStep {
+    /** Check the CF connection again: blocking can start mid-session. */
+    RECHECK,
+
+    /** The way in use carries nothing although CF connections open: try another. */
+    SET_ASIDE,
+
+    /** Nothing for the CF choice to do: the watchdog goes on (restart, then the card). */
+    NONE,
+}
+
+/**
+ * The first step for a stall in "Choose automatically" ([auto]: on, with the CF
+ * proxy and a network): a recheck once per network ([checkedHere]: done on this
+ * one), then, if CF connections opened during the stall ([cfOpened]) and still
+ * nothing came back, setting the way in use ([current]) aside unless it already is.
+ */
+internal fun cfStallStep(
+    auto: Boolean, checkedHere: Boolean, cfOpened: Int,
+    current: CfTransport, stalled: Set<CfTransport>,
+): CfStallStep = when {
+    !auto -> CfStallStep.NONE
+    !checkedHere -> CfStallStep.RECHECK
+    cfOpened > 0 && current !in stalled -> CfStallStep.SET_ASIDE
+    else -> CfStallStep.NONE
 }
 
 /**

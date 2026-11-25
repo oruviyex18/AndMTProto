@@ -178,11 +178,13 @@ data class CfChoice(val target: CfTransport?, val cutOff: Boolean)
 /**
  * The first way in [CF_AUTO_ORDER] that also carries large data, else the first
  * where Telegram at least answers; null when none does. [CfChoice.cutOff]: Telegram
- * answers, but the network cuts every way off after a few KB.
+ * answers, but the network cuts every way off after a few KB. Ways in [skip]
+ * passed the check before but carried nothing for Telegram (see [StalledWays]).
  */
-fun chooseCfTransport(probe: ProxyCore.CfProbe): CfChoice {
-    val full = CF_AUTO_ORDER.firstOrNull { probe.worksFully(it) }
-    val target = full ?: CF_AUTO_ORDER.firstOrNull { probe.works(it) }
+fun chooseCfTransport(probe: ProxyCore.CfProbe, skip: Set<CfTransport> = emptySet()): CfChoice {
+    val order = CF_AUTO_ORDER.filter { it !in skip }
+    val full = order.firstOrNull { probe.worksFully(it) }
+    val target = full ?: order.firstOrNull { probe.works(it) }
     return CfChoice(target, cutOff = full == null && target != null)
 }
 

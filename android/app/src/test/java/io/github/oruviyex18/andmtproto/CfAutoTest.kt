@@ -93,4 +93,72 @@ class CfAutoTest {
     fun nothingAnswering() {
         assertEquals(CfChoice(null, false), chooseCfTransport(probe(false, false, false)))
     }
+
+    @Test
+    fun aWayThatCarriedNothingIsSkippedThoughTheCheckPassesIt() {
+        // GPB Mobile, 25 Nov 2026: the check passed the bypass, Telegram got nothing over it.
+        val all = probe(true, false, true)
+        assertEquals(CfChoice(CfTransport.PLAIN, false), chooseCfTransport(all, setOf(CfTransport.BYPASS)))
+        assertEquals(CfChoice(null, false), chooseCfTransport(all, setOf(CfTransport.BYPASS, CfTransport.PLAIN)))
+    }
+
+    @Test
+    fun stalledWaysAreKeptPerNetwork() {
+        val ways = StalledWays(keepMs = 1_000)
+        assertEquals(emptySet<CfTransport>(), ways.on("mobile", 0))
+        assertTrue(ways.add("mobile", CfTransport.BYPASS, 0))
+        assertFalse("once per way", ways.add("mobile", CfTransport.BYPASS, 10))
+        assertTrue(ways.add("mobile", CfTransport.PLAIN, 500))
+        assertEquals(setOf(CfTransport.BYPASS, CfTransport.PLAIN), ways.on("mobile", 600))
+        assertEquals("the bypass's time is up", setOf(CfTransport.PLAIN), ways.on("mobile", 1_200))
+        assertTrue("set aside again once its time is up", ways.add("mobile", CfTransport.BYPASS, 1_200))
+        ways.remove("mobile", CfTransport.PLAIN)
+        assertEquals("taken back", setOf(CfTransport.BYPASS), ways.on("mobile", 1_300))
+        assertEquals(emptySet<CfTransport>(), ways.on("wifi", 1_300))
+        assertTrue("another network starts afresh", ways.add("wifi", CfTransport.BYPASS, 1_300))
+        assertEquals(emptySet<CfTransport>(), ways.on("mobile", 1_300))
+    }
+
+    @Test
+    fun aCheckWithWaysSetAside() {
+        val bypass = CfTransport.BYPASS
+        val plain = CfTransport.PLAIN
+        val aside = setOf(bypass)
+        // Another way works: use it; the cut-off state comes from the check alone.
+        assertEquals(CfOutcome(plain, false), cfCheckOutcome(probe(true, false, true), aside, bypass))
+        assertEquals(
+            CfOutcome(CfTransport.TLS, false),
+            cfCheckOutcome(probe(true, true, false, tlsFull = false), aside, bypass),
+        )
+        // Only the set-aside way passes and the current one does too: keep it.
+        assertEquals(CfOutcome(plain, false), cfCheckOutcome(probe(true, false, true), setOf(bypass, plain), plain))
+        // Only the set-aside way passes, the current one doesn't (port 80 blocked later): take it back.
+        assertEquals(CfOutcome(bypass, false, takeBack = true), cfCheckOutcome(probe(true, false, false), aside, plain))
+        // Nothing works.
+        assertEquals(CfOutcome(null, false), cfCheckOutcome(probe(false, false, false), aside, plain))
+    }
+
+    @Test
+    fun onlyCfConnectionsOpenedDuringTheStallCount() {
+        val stalls = StallDetector()
+        // CF connections that carried data earlier don't make a later stall a CF one.
+        stalls.update(ProxyStatus(total = 5, cfOk = 4, bytesDown = 100), 0)
+        assertTrue(stalls.update(ProxyStatus(total = 9, cfOk = 4, bytesDown = 100), 61_000))
+        assertEquals(0, stalls.cfOpened)
+        assertTrue(stalls.update(ProxyStatus(total = 10, cfOk = 6, bytesDown = 100), 62_000))
+        assertEquals(2, stalls.cfOpened)
+        stalls.update(ProxyStatus(total = 11, cfOk = 7, bytesDown = 200), 63_000)
+        assertEquals("bytes came back", 0, stalls.cfOpened)
+    }
+
+    @Test
+    fun stallStepsInOrder() {
+        val bypass = CfTransport.BYPASS
+        assertEquals(CfStallStep.NONE, cfStallStep(false, false, 5, bypass, emptySet()))
+        assertEquals(CfStallStep.RECHECK, cfStallStep(true, false, 5, bypass, emptySet()))
+        assertEquals(CfStallStep.SET_ASIDE, cfStallStep(true, true, 5, bypass, emptySet()))
+        assertEquals("no CF connection during the stall", CfStallStep.NONE, cfStallStep(true, true, 0, bypass, emptySet()))
+        assertEquals("already set aside", CfStallStep.NONE, cfStallStep(true, true, 5, bypass, setOf(bypass)))
+        assertEquals(CfStallStep.SET_ASIDE, cfStallStep(true, true, 5, CfTransport.PLAIN, setOf(bypass)))
+    }
 }

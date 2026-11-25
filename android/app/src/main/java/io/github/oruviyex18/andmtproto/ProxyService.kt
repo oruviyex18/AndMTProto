@@ -233,8 +233,11 @@ class ProxyService : Service() {
     /**
      * When nothing has got through for a minute although Telegram keeps trying,
      * first lets "Choose automatically" check the CF connection again ([checkCf],
-     * once per network: blocking can start mid-session), then restarts the core once (fresh pools, DNS and CF domain choice); if that
-     * doesn't help either, tells the UI. Returns true when this session was replaced.
+     * once per network: blocking can start mid-session). If that keeps the way in use
+     * while Telegram's CF connections still get nothing, moves to the next way the check
+     * passes ([StalledWays]). Then restarts the core once (fresh pools, DNS and CF
+     * domain choice); if that doesn't help either, tells the UI. Returns true when this
+     * session was replaced.
      */
     private suspend fun watchStall(stalls: StallDetector, status: ProxyStatus): Boolean {
         val now = SystemClock.elapsedRealtime()
@@ -243,9 +246,25 @@ class ProxyService : Service() {
         if (!stuck) return false
         if (cfCheckJob?.isActive == true) return false // its result decides what comes next
         val on = network ?: connectivity.activeNetwork
-        if (on != null && on != stallCheckedOn && settings.cfproxy && settings.cfAuto) {
+        val step = cfStallStep(
+            auto = on != null && settings.cfproxy && settings.cfAuto,
+            checkedHere = on == stallCheckedOn,
+            cfOpened = stalls.cfOpened,
+            current = settings.cfTransport,
+            stalled = on?.let { stalledWays.on(it, now) } ?: emptySet(),
+        )
+        if (on != null && step == CfStallStep.RECHECK) {
             stallCheckedOn = on
             launchCheckCf(on, fresh = true)
+            return false
+        }
+        if (on != null && step == CfStallStep.SET_ASIDE) {
+            stalledWays.add(on, settings.cfTransport, now)
+            ProxyCore.note(
+                "Nothing gets through over ${label(settings.cfTransport)} on ${describeNetwork(on)} " +
+                    "although ${stalls.cfOpened} CF connections opened; trying another way"
+            )
+            launchCheckCf(on, fresh = false)
             return false
         }
         val check = ProxyCore.cfCheck.value
@@ -325,13 +344,20 @@ class ProxyService : Service() {
             return
         }
         noteProbe(on, probe)
-        val (target, cutOff) = chooseCfTransport(probe)
+        // The cards and the cut-off state come from the check alone; the ways set
+        // aside only change which of the working ways is used.
+        val (target, cutOff, takeBack) =
+            cfCheckOutcome(probe, stalledWays.on(on, SystemClock.elapsedRealtime()), settings.cfTransport)
         ProxyCore.setCfCheck(
             ProxyCore.CfCheck(on, describeNetwork(on), System.currentTimeMillis(), target, cutOff)
         )
         if (target == null) {
             ProxyCore.note("No way to reach the CF proxy works on ${describeNetwork(on)}; keeping ${label(settings.cfTransport)}")
             return
+        }
+        if (takeBack) {
+            stalledWays.remove(on, target)
+            ProxyCore.note("Only ${label(target)} works on ${describeNetwork(on)}, which carried nothing earlier; trying it again")
         }
         if (cutOff) {
             ProxyCore.note(
@@ -493,6 +519,12 @@ class ProxyService : Service() {
         private const val ACTION_START = "start"
         private const val ACTION_RESTART = "restart"
         private const val ACTION_STOP = "stop"
+
+        /**
+         * Ways "Choose automatically" saw carry nothing although its check passed them;
+         * kept for the app process, so a stop and start doesn't go through the stall again.
+         */
+        private val stalledWays = StalledWays()
 
         /** Starts the proxy, or restarts it with the saved settings when [restart] is true. */
         fun start(context: Context, restart: Boolean = false) {

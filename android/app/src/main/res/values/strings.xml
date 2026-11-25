@@ -155,7 +155,7 @@
     <string name="share_full_log">Send full log</string>
     <string name="cf_transport">CF connection</string>
     <string name="cf_transport_auto">Choose automatically</string>
-    <string name="cf_transport_auto_body">AndMTProto checks the ways below at every start, on a network change and when Telegram stops getting data, and uses the first that works: TLS with the bypass, plain TLS, no TLS. Recommended.</string>
+    <string name="cf_transport_auto_body">AndMTProto checks the ways below at every start, on a network change and when Telegram stops getting data, and uses the first that works: TLS with the bypass, plain TLS, no TLS. A way that passes the check but carries nothing for Telegram is skipped on that network for a few hours. Recommended.</string>
     <string name="cf_auto_now">Now: %1$s</string>
     <string name="cf_auto_checked">%1$s · checked at %2$s</string>
     <string name="cf_auto_check_failed">%1$s · couldn\'t check at %2$s</string>
