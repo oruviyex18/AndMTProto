@@ -39,6 +39,8 @@ object ProxyWatch {
     private const val KEY_STOP_DISMISSED = "stop_dismissed"
     private const val JOB_ID = 1002
     private const val REVIVE_PERIOD_MS = 15 * 60_000L
+    /** After a start was asked for, the service gets this long to come up before a revive. */
+    const val START_GRACE_MS = 10_000L
     const val NOTIFICATION_ID = 3
 
     /** How the app's last process ended, in the kinds the app explains. */
@@ -77,6 +79,40 @@ object ProxyWatch {
     /** The main screen explains these stops; the others need nothing from the user. */
     fun worthACard(kind: StopKind): Boolean = kind == StopKind.SYSTEM || kind == StopKind.CRASH
 
+    /** The want counts only in the boot it was set in; after a reboot it's "Start on boot"'s business. */
+    fun wantedNow(flag: Boolean, wantedBoot: Int, boot: Int): Boolean = flag && wantedBoot == boot
+
+    /**
+     * Whether to start the proxy again: wanted, not running, and no start asked for
+     * in the last [START_GRACE_MS] (the service may not exist yet: the tile's start
+     * through the app and the app's own revive would otherwise both start it).
+     */
+    fun shouldRevive(wanted: Boolean, running: Boolean, sinceStartRequestMs: Long): Boolean =
+        wanted && !running && sinceStartRequestMs >= START_GRACE_MS
+
+    /** One process exit, as [ApplicationExitInfo] gives it; plain values, for tests. */
+    data class Exit(val timestamp: Long, val processName: String, val reason: Int, val description: String?)
+
+    /** What [checkLastExit] records: the stop (null if the proxy wasn't wanted) and whether to drop the want. */
+    data class ExitDecision(val seenAt: Long, val stop: Stop?, val clearWant: Boolean)
+
+    /**
+     * The newest exit of the app's main process ([packageName]) after [seenAt], if
+     * any: always marked seen; a stop to record when the proxy was [wanted]; and a
+     * force-stop (the user's) drops the want. Null when there's nothing new.
+     */
+    fun decideExit(exits: List<Exit>, packageName: String, seenAt: Long, wanted: Boolean): ExitDecision? {
+        val last = exits.filter { it.processName == packageName }.maxByOrNull { it.timestamp } ?: return null
+        if (last.timestamp <= seenAt) return null
+        if (!wanted) return ExitDecision(last.timestamp, null, clearWant = false)
+        val kind = kindOf(last.reason, last.description)
+        val name = reasonName(last.reason)
+        // Android's description often just repeats the reason ("crash").
+        val description = last.description?.take(120)?.takeIf { it.isNotBlank() && it != name }
+        val detail = listOfNotNull(name, description).joinToString(": ")
+        return ExitDecision(last.timestamp, Stop(kind, last.timestamp, detail), clearWant = kind == StopKind.USER)
+    }
+
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     /** This boot's number; a want from an earlier boot is "Start on boot"'s business. */
@@ -112,7 +148,7 @@ object ProxyWatch {
     /** The user wants the proxy running in this boot. */
     fun wanted(context: Context): Boolean {
         val p = prefs(context)
-        return p.getBoolean(KEY_WANTED, false) && p.getInt(KEY_WANTED_BOOT, -2) == bootCount(context)
+        return wantedNow(p.getBoolean(KEY_WANTED, false), p.getInt(KEY_WANTED_BOOT, -2), bootCount(context))
     }
 
     /**
@@ -128,25 +164,22 @@ object ProxyWatch {
             Log.w(TAG, "Cannot read exit reasons", e)
             return
         }
-        val last = exits.filter { it.processName == context.packageName }.maxByOrNull { it.timestamp } ?: return
         val p = prefs(context)
-        if (last.timestamp <= p.getLong(KEY_SEEN_EXIT, 0)) return
-        p.edit { putLong(KEY_SEEN_EXIT, last.timestamp) }
-        if (!wanted(context)) return
-        val kind = kindOf(last.reason, last.description)
-        val name = reasonName(last.reason)
-        // Android's description often just repeats the reason ("crash").
-        val description = last.description?.take(120)?.takeIf { it.isNotBlank() && it != name }
-        val detail = listOfNotNull(name, description).joinToString(": ")
+        val decision = decideExit(
+            exits.map { Exit(it.timestamp, it.processName, it.reason, it.description) },
+            context.packageName, p.getLong(KEY_SEEN_EXIT, 0), wanted(context),
+        ) ?: return
+        p.edit { putLong(KEY_SEEN_EXIT, decision.seenAt) }
+        val stop = decision.stop ?: return
         p.edit {
-            putString(KEY_STOP_KIND, kind.name)
-            putLong(KEY_STOP_AT, last.timestamp)
-            putString(KEY_STOP_DETAIL, detail)
+            putString(KEY_STOP_KIND, stop.kind.name)
+            putLong(KEY_STOP_AT, stop.atMillis)
+            putString(KEY_STOP_DETAIL, stop.detail)
             putBoolean(KEY_STOP_LOGGED, false)
-            putBoolean(KEY_STOP_DISMISSED, !worthACard(kind))
+            putBoolean(KEY_STOP_DISMISSED, !worthACard(stop.kind))
         }
         // A force-stop in Android's settings is the user's stop: don't start the proxy again.
-        if (kind == StopKind.USER) setWanted(context, false)
+        if (decision.clearWant) setWanted(context, false)
     }
 
     /** Why the proxy last stopped without the user, if it did; null otherwise. */
@@ -178,7 +211,8 @@ object ProxyWatch {
      * unless battery optimisation is off for it; then a notification offers to.
      */
     fun revive(context: Context, from: String) {
-        if (!wanted(context) || ProxyService.running) return
+        val sinceStart = android.os.SystemClock.elapsedRealtime() - ProxyService.startRequestedAt
+        if (!shouldRevive(wanted(context), ProxyService.running, sinceStart)) return
         Log.i(TAG, "The proxy should be running but isn't; starting it ($from)")
         try {
             ProxyService.start(context)
@@ -209,7 +243,7 @@ object ProxyWatch {
         }
     }
 
-    private fun reasonName(reason: Int): String? = when (reason) {
+    internal fun reasonName(reason: Int): String? = when (reason) {
         0 -> "unknown"
         1 -> "exit self"
         2 -> "signaled"

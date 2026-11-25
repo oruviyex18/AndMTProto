@@ -536,6 +536,7 @@ class ProxyService : Service() {
 
         /** Starts the proxy, or restarts it with the saved settings when [restart] is true. */
         fun start(context: Context, restart: Boolean = false) {
+            startRequestedAt = android.os.SystemClock.elapsedRealtime()
             val intent = Intent(context, ProxyService::class.java)
                 .setAction(if (restart) ACTION_RESTART else ACTION_START)
             ContextCompat.startForegroundService(context, intent)
@@ -545,6 +546,11 @@ class ProxyService : Service() {
             ProxyWatch.setWanted(context, false)
             context.stopService(Intent(context, ProxyService::class.java))
         }
+
+        /** When [start] was last called (elapsedRealtime); [ProxyWatch.revive] waits for it. */
+        @Volatile
+        var startRequestedAt = Long.MIN_VALUE / 2
+            private set
 
         /** The service exists in this process (between onCreate and onDestroy). */
         @Volatile
