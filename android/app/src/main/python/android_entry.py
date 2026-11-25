@@ -7,7 +7,7 @@ Review this file whenever upstream changes ProxyConfig, _run() or the
 tray lifecycle code.
 
 Kotlin (ProxyCore.kt) calls only start(), stop(), status(), note(),
-probe_cf(), forget_cf_pick(), set_pool_paused(), check_tls_strategy() and
+probe_cf(), check_routes(), forget_cf_pick(), set_pool_paused(), check_tls_strategy() and
 proxy_link();
 config and status travel as JSON strings. Errors reach Kotlin as
 {"code", "detail", "suggested_port"} so the UI can show them in its own
@@ -948,6 +948,83 @@ def probe_cf(timeout: float = _PROBE_TIMEOUT_S) -> str:
         return json.dumps({})
     domains = _probe_domains(_PROBE_DOMAINS)
     return json.dumps(asyncio.run(_probe_cf(domains, timeout, _probe_strategy)))
+
+
+_ROUTE_CHECK_DC = 2
+_ROUTE_WORKERS = 3  # at most this many of the user's Workers
+
+
+async def _answer_ms(host: str, domain: str, secure: bool, timeout: float,
+                     bypass: Any = None, path: str = '/apiws') -> Optional[int]:
+    """Milliseconds until Telegram answers a req_pq_multi through a WebSocket
+    to `host` (named `domain`), or None. `bypass`: a Strategy, False for plain
+    TLS, None for what the core uses now."""
+    tls_bypass.override.set(bypass)  # this task's own context
+    started = time.monotonic()
+
+    async def exchange() -> bool:
+        ws = await RawWebSocket.connect(host, domain, timeout=timeout, path=path, secure=secure)
+        try:
+            start, request = _probe_request(_ROUTE_CHECK_DC)
+            await ws.send(start)
+            await ws.send(request)
+            return bool(await ws.recv())
+        finally:
+            ws.writer.close()
+
+    try:
+        if await asyncio.wait_for(exchange(), timeout=timeout):
+            return int((time.monotonic() - started) * 1000)
+    except Exception:
+        pass
+    return None
+
+
+async def _check_routes(timeout: float) -> List[Dict[str, Any]]:
+    pc = proxy_config
+    checks: List[Tuple[str, Any]] = []
+    direct_ip = pc.dc_redirects.get(_ROUTE_CHECK_DC)
+    if direct_ip:
+        checks.append(("direct", _answer_ms(
+            direct_ip, proxy_utils.ws_domains(_ROUTE_CHECK_DC, False)[0], True, timeout)))
+
+    async def cf_way(secure: bool, bypass: Any) -> Dict[str, Any]:
+        hosts = [f"kws{_ROUTE_CHECK_DC}.{d}" for d in _probe_domains(_PROBE_DOMAINS)]
+        times = await asyncio.gather(*(_answer_ms(h, h, secure, timeout, bypass) for h in hosts))
+        answered = [h for h, ms in zip(hosts, times) if ms is not None]
+        full = bool(answered) and await _large_works(answered, secure, timeout, bypass)
+        best = min((ms for ms in times if ms is not None), default=None)
+        return {"ok": best is not None, "ms": best, "full": full}
+
+    if pc.fallback_cfproxy:
+        strategy = tls_bypass.active() or tls_bypass.parse(tls_bypass.DEFAULT_STRATEGY)
+        checks.append(("cf_bypass", cf_way(True, strategy)))
+        checks.append(("cf_tls", cf_way(True, False)))
+        checks.append(("cf_plain", cf_way(False, False)))
+    dst = proxy_utils.DC_DEFAULT_IPS[_ROUTE_CHECK_DC]
+    for n, worker in enumerate(pc.cfproxy_worker_domains[:_ROUTE_WORKERS], 1):
+        path = f"/apiws?dst={dst}&dc={_ROUTE_CHECK_DC}"
+        checks.append((f"worker{n}", _answer_ms(worker, worker, not pc.disable_secure, timeout, None, path)))
+    results = await asyncio.gather(*(c for _, c in checks))
+    out = []
+    for (route, _), result in zip(checks, results):
+        if isinstance(result, dict):
+            out.append({"route": route, **result})
+        else:
+            out.append({"route": route, "ok": result is not None, "ms": result, "full": None})
+    return out
+
+
+def check_routes(timeout: float = _PROBE_TIMEOUT_S) -> str:
+    """Each way to Telegram, checked with a real request, for the app's route
+    check: [{"route": "direct" | "cf_bypass" | "cf_tls" | "cf_plain" |
+    "workerN", "ok": bool, "ms": int or null, "full": bool or null}, ...].
+    "full": the large check (over 24 KB each way, to Cloudflare) passed;
+    null where it isn't run. Workers are numbered, not named: the list
+    reaches the report. Needs a started core (its settings); [] otherwise."""
+    if not _is_running():  # a core that died keeps its thread until stop()
+        return json.dumps([])
+    return json.dumps(asyncio.run(_check_routes(timeout)))
 
 
 def note(message: str) -> None:

@@ -519,3 +519,43 @@ def test_probe_request_is_req_pq_multi_for_dc2():
 def test_probe_cf_skipped_without_cf_proxy(monkeypatch):
     monkeypatch.setattr(android_entry.proxy_config, "fallback_cfproxy", False)
     assert json.loads(android_entry.probe_cf()) == {}
+
+
+def test_check_routes_times_each_way_with_a_real_request(monkeypatch):
+    """Direct WebSocket, the three CF ways and the user's Workers, each with
+    the request Telegram sends first; the CF ways that answer get the large check."""
+    monkeypatch.setattr(android_entry, "_is_running", lambda: True)  # a started core
+    monkeypatch.setattr(android_entry.proxy_config, "fallback_cfproxy", True)
+    monkeypatch.setattr(android_entry.proxy_config, "disable_secure", False)
+    monkeypatch.setattr(android_entry.proxy_config, "dc_redirects", {2: "149.154.167.220"})
+    monkeypatch.setattr(android_entry.proxy_config, "cfproxy_worker_domains", ["w.example.workers.dev"])
+    monkeypatch.setattr(android_entry.balancer, "domains", ["a.example"])
+    asked = []
+
+    async def connect(host, domain, timeout=10.0, path='/apiws', *, sni=None, secure=True):
+        asked.append((host, domain, path, secure))
+        if secure and host.startswith("kws2.") and android_entry.tls_bypass.override.get() is False:
+            raise TimeoutError()  # plain TLS to the CF proxy is blocked
+        return _FakeWs()
+    monkeypatch.setattr(android_entry.RawWebSocket, "connect", connect)
+    monkeypatch.setattr(android_entry, "_transfer_size", _fake_download())
+    routes = {r["route"]: r for r in json.loads(android_entry.check_routes(timeout=0.5))}
+    assert sorted(routes) == ["cf_bypass", "cf_plain", "cf_tls", "direct", "worker1"]
+    assert routes["direct"]["ok"] and routes["direct"]["full"] is None
+    assert routes["cf_bypass"]["ok"] and routes["cf_bypass"]["full"] is True
+    assert routes["cf_tls"] == {"route": "cf_tls", "ok": False, "ms": None, "full": False}
+    assert routes["cf_plain"]["ok"] and isinstance(routes["cf_plain"]["ms"], int)
+    assert routes["worker1"]["ok"]
+    assert ("149.154.167.220", "kws2.web.telegram.org", "/apiws", True) in asked
+    assert ("w.example.workers.dev", "w.example.workers.dev", "/apiws?dst=149.154.167.51&dc=2", True) in asked
+
+
+def test_check_routes_needs_a_running_core(monkeypatch):
+    monkeypatch.setattr(android_entry, "_proxy_thread", None)
+    assert json.loads(android_entry.check_routes()) == []
+
+    class Dead:  # a core thread that ended on an error keeps its reference
+        def is_alive(self):
+            return False
+    monkeypatch.setattr(android_entry, "_proxy_thread", Dead())
+    assert json.loads(android_entry.check_routes()) == []

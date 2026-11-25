@@ -6,8 +6,10 @@ import android.util.Log
 import com.chaquo.python.Python
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -211,6 +213,49 @@ object ProxyCore {
         } catch (e: Exception) {
             Log.w(TAG, "CF probe failed", e)
             null
+        }
+    }
+
+    /**
+     * One way to Telegram from [checkRoutes]: [route] is "direct", "cf_bypass",
+     * "cf_tls", "cf_plain" or "workerN"; [ms] until Telegram answered, null if it
+     * didn't; [full]: the large check passed (null where it isn't run).
+     */
+    data class RouteCheck(val route: String, val ok: Boolean, val ms: Int?, val full: Boolean?)
+
+    /** The route check under way, shared: the Python side can't be cancelled midway. */
+    private val routeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val routeLock = Any()
+    private var routeCheck: Deferred<List<RouteCheck>>? = null
+
+    /**
+     * Checks every way to Telegram with a real request (android_entry.check_routes,
+     * up to ~30 s) off the lifecycle thread; empty when the core isn't running.
+     * One check at a time: a call while one runs (the dialog closed and opened
+     * again) waits for that one instead of starting another.
+     */
+    suspend fun checkRoutes(): List<RouteCheck> {
+        val check = synchronized(routeLock) {
+            routeCheck?.takeIf { it.isActive }
+                ?: routeScope.async { runRouteCheck() }.also { routeCheck = it }
+        }
+        return check.await()
+    }
+
+    private fun runRouteCheck(): List<RouteCheck> {
+        return try {
+            val a = org.json.JSONArray(module.callAttr("check_routes").toString())
+            List(a.length()) { i ->
+                val o = a.getJSONObject(i)
+                RouteCheck(
+                    o.getString("route"), o.getBoolean("ok"),
+                    if (o.isNull("ms")) null else o.getInt("ms"),
+                    if (o.isNull("full")) null else o.getBoolean("full"),
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Route check failed", e)
+            emptyList()
         }
     }
 
