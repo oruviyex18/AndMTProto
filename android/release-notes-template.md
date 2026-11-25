@@ -21,6 +21,7 @@ AndMTProto запускает на телефоне локальный MTProto-�
 AndMTProto прошёл проверку Google Play Защиты. Если Android всё же предупредит, что приложение установлено не из Google Play, нажмите **Подробнее** → **Всё равно установить**.
 
 **Обновление:** раз в день AndMTProto сам проверяет, вышла ли новая версия, и показывает уведомление (отключается в настройках); то же делает кнопка **Обновить программу** внизу главного экрана. Кнопка **Скачать** в карточке о новой версии открывает APK в браузере — откройте скачанный файл и нажмите «Обновить».
+- **Автоматически через [Obtainium](https://github.com/ImranR98/Obtainium)** — открытое приложение, которое следит за релизами на GitHub: [добавить AndMTProto в Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/oruviyex18/AndMTProto).
 - **С версии 1.11.2-android.2 или новее** — установите поверх, настройки сохранятся.
 - **С версии 1.11.2-android.1 или собранной самостоятельно debug-версии** — сначала удалите старую версию (она подписана другим ключом), затем установите новую. Настройки придётся задать заново.
 
@@ -61,7 +62,7 @@ AndMTProto прошёл проверку Google Play Защиты. Если Andr
 ## Известные проблемы
 - Дата-центры 1, 3 и 5 могут не отвечать через общий CF-прокси; помогает свой CF Worker или домен (ссылки на инструкции — в настройках).
 
-SHA-256 сертификата подписи: `14:03:0C:3F:EE:D9:4B:9F:5F:21:CF:6A:F9:06:B2:F7:C2:8F:54:BD:05:5D:08:67:B5:88:06:49:D3:70:50:7B`
+SHA-256 сертификата подписи: `14:03:0C:3F:EE:D9:4B:9F:5F:21:CF:6A:F9:06:B2:F7:C2:8F:54:BD:05:5D:08:67:B5:88:06:49:D3:70:50:7B`. Контрольная сумма APK — в файле `SHA256SUMS` в разделе **Assets**.
 
 **Все изменения:** https://github.com/oruviyex18/AndMTProto/compare/android-v{{PREVIOUS}}...android-v{{VERSION}}
 
@@ -74,7 +75,7 @@ SHA-256 сертификата подписи: `14:03:0C:3F:EE:D9:4B:9F:5F:21:CF
 
 {{CHANGES_EN}}
 
-**Install:** Android 7.0+, 64-bit ARM or x86_64. The app has passed Google Play Protect's review; if Android still warns it isn't from Google Play, tap **More details** → **Install anyway**. The app checks for a new version once a day and shows a notification (can be turned off in the settings); so does **Update the app** at the bottom of the main screen. **Download** on the new-version card opens the APK in the browser; open the downloaded file and tap "Update". From 1.11.2-android.2 or newer, install over it (settings are kept). From 1.11.2-android.1 or a self-built debug APK, uninstall first (different signing key).
+**Install:** Android 7.0+, 64-bit ARM or x86_64. The app has passed Google Play Protect's review; if Android still warns it isn't from Google Play, tap **More details** → **Install anyway**. The app checks for a new version once a day and shows a notification (can be turned off in the settings); so does **Update the app** at the bottom of the main screen. **Download** on the new-version card opens the APK in the browser; open the downloaded file and tap "Update". For automatic updates, add AndMTProto to [Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/oruviyex18/AndMTProto). From 1.11.2-android.2 or newer, install over it (settings are kept). The APK's checksum is in `SHA256SUMS` under **Assets**. From 1.11.2-android.1 or a self-built debug APK, uninstall first (different signing key).
 
 **Set up:** tap the big start button, then **Open in Telegram** → **Connect proxy**. Manually: Telegram → Settings → Data and Storage → Proxy Settings → Add Proxy → MTProto, server `127.0.0.1`, port `1443`, key from **Copy link**. Tap **Allow background work** and turn optimisation off for AndMTProto; on Xiaomi pick AndMTProto → background activity control → No restrictions, and enable Autostart. **Start on boot** is on by default; optional: the Quick Settings tile.
 
