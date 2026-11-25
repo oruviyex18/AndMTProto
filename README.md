@@ -62,7 +62,7 @@
 2. Откройте файл. Если Android спросит, разрешите установку приложений из этого источника (браузера или файлового менеджера) и вернитесь назад.
 3. Нажмите **Установить**.
 
-**Обновлять автоматически** можно через [Obtainium](https://github.com/ImranR98/Obtainium) — открытое приложение, которое следит за релизами на GitHub: установите его и нажмите [добавить AndMTProto в Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/oruviyex18/AndMTProto) (или в Obtainium: «Добавить приложение» → `https://github.com/oruviyex18/AndMTProto`).
+**Обновлять автоматически** можно через [Obtainium](https://github.com/ImranR98/Obtainium) — открытое приложение, которое следит за релизами на GitHub: установите его и нажмите [добавить AndMTProto в Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22io.github.oruviyex18.andmtproto%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2Foruviyex18%2FAndMTProto%22%2C%22author%22%3A%22oruviyex18%22%2C%22name%22%3A%22AndMTProto%22%2C%22additionalSettings%22%3A%22%7B%5C%22versionExtractionRegEx%5C%22%3A%5C%22%5C%5C%5C%5Cd%2B%5C%5C%5C%5C.%5C%5C%5C%5Cd%2B%5C%5C%5C%5C.%5C%5C%5C%5Cd%2B-android%5C%5C%5C%5C.%5C%5C%5C%5Cd%2B%5C%22%2C%5C%22matchGroupToUse%5C%22%3A%5C%22%5C%22%7D%22%7D). Ссылка сразу настраивает, как Obtainium читает номер версии из релиза; если добавлять вручную («Добавить приложение» → `https://github.com/oruviyex18/AndMTProto`), Obtainium будет считать, что обновление есть всегда.
 
 Новые версии устанавливаются поверх старых, настройки сохраняются. Исключение — версия `1.11.2-android.1` и debug-сборки, собранные самостоятельно: они подписаны другим ключом, поэтому их сначала нужно удалить.
 
