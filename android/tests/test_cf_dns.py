@@ -67,17 +67,54 @@ def test_doh_answers_when_the_system_fails_or_lies(dns):
     assert _ips(socket.getaddrinfo("kws4.example-cf.com", 443, socket.AF_INET)) == ["104.21.2.2"]
 
 
-def test_the_next_doh_server_when_one_is_blocked(dns):
+def test_another_doh_server_answers_when_one_is_blocked(dns):
     dns["doh"]["8.8.8.8"] = ["172.67.3.3"]
     assert _ips(socket.getaddrinfo(CF, 443)) == ["172.67.3.3"]
-    assert [a[1] for a in dns["asked"] if a[0] == "doh"] == ["1.1.1.1", "8.8.8.8"]
+    # All asked at once: a blocked one doesn't hold the others up.
+    assert {a[1] for a in dns["asked"] if a[0] == "doh"} >= {"1.1.1.1", "8.8.8.8"}
 
 
 def test_doh_answers_are_cached(dns):
     dns["doh"]["1.1.1.1"] = ["104.21.2.2"]
     socket.getaddrinfo(CF, 443)
+    cf_dns._pool.submit(lambda: None).result()  # let the other servers' replies land
+    __import__("time").sleep(0.1)
+    doh = lambda: [x for x in dns["asked"] if x[0] == "doh"]  # noqa: E731
+    asked = len(doh())
     socket.getaddrinfo(CF, 443)
-    assert [a for a in dns["asked"] if a[0] == "doh"] == [("doh", "1.1.1.1")]
+    assert len(doh()) == asked
+
+
+def test_unreachable_doh_is_remembered_so_lookups_dont_wait(dns):
+    """Always-DoH on a network that blocks it: the first lookup finds out, the next
+    ones use the system's DNS at once instead of waiting for DoH again."""
+    cf_dns.configure(lambda: ["example-cf.com"], always_doh=True)
+    dns["system"][CF] = ["104.21.1.1"]
+    assert _ips(socket.getaddrinfo(CF, 443)) == ["104.21.1.1"]
+    asked = len([a for a in dns["asked"] if a[0] == "doh"])
+    assert asked == len(cf_dns.DOH_SERVERS)
+    dns["system"]["kws4.example-cf.com"] = ["104.21.4.4"]
+    assert _ips(socket.getaddrinfo("kws4.example-cf.com", 443)) == ["104.21.4.4"]
+    assert len([a for a in dns["asked"] if a[0] == "doh"]) == asked
+
+
+def test_a_hanging_doh_server_costs_no_more_than_the_budget(dns, monkeypatch):
+    import threading
+    import time
+    release = threading.Event()
+
+    def hang(url):
+        release.wait(5)
+        raise OSError("timed out")
+    monkeypatch.setattr(cf_dns, "_fetch_json", hang)
+    monkeypatch.setattr(cf_dns, "DOH_BUDGET_S", 0.3)
+    dns["system"][CF] = ["10.0.0.1"]  # a provider's unusable answer: DoH is asked
+    started = time.monotonic()
+    try:
+        assert _ips(socket.getaddrinfo(CF, 443)) == ["10.0.0.1"]  # nothing better came
+        assert time.monotonic() - started < 2
+    finally:
+        release.set()
 
 
 def test_nothing_answers_keeps_the_system_error(dns):

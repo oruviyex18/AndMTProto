@@ -19,6 +19,7 @@ each connection; every other host goes straight to the original.
 """
 from __future__ import annotations
 
+import concurrent.futures
 import ipaddress
 import json
 import logging
@@ -36,7 +37,11 @@ DOH_SERVERS = (
     "https://8.8.8.8/resolve",
     "https://1.0.0.1/dns-query",
 )
-DOH_TIMEOUT_S = 4.0
+# All servers at once, within this; a server's own request gives up then too.
+DOH_BUDGET_S = 2.5
+DOH_TIMEOUT_S = DOH_BUDGET_S
+# How long DoH counts as unreachable after no server answered.
+DOH_RETRY_S = 60.0
 _MIN_TTL_S, _MAX_TTL_S = 60, 600
 
 _original_getaddrinfo = socket.getaddrinfo
@@ -45,15 +50,18 @@ _always_doh = False
 _cf_ip: Optional[str] = None
 _cache: Dict[Tuple[str, int], Tuple[float, List[str]]] = {}
 _lock = threading.Lock()
+_doh_down_until = 0.0
+_pool = concurrent.futures.ThreadPoolExecutor(max_workers=6, thread_name_prefix="doh")
 
 
 def configure(hosts: Callable[[], Iterable[str]], always_doh: bool = False,
               cf_ip: Optional[str] = None) -> None:
     """Hosts under `hosts()` get this resolution; see the module's notes."""
-    global _hosts, _always_doh, _cf_ip
+    global _hosts, _always_doh, _cf_ip, _doh_down_until
     _hosts, _always_doh, _cf_ip = hosts, bool(always_doh), (cf_ip or None)
     with _lock:
         _cache.clear()
+        _doh_down_until = 0.0
     socket.getaddrinfo = _getaddrinfo
 
 
@@ -118,7 +126,11 @@ def _fetch_json(url: str) -> Dict[str, Any]:
 
 def resolve_doh(name: str, family: int = 0) -> List[str]:
     """Addresses for `name` from DNS over HTTPS (IPv6 only when asked for), cached for
-    their TTL; [] when no server answers."""
+    their TTL; [] when no server answers. The servers are asked at once and the
+    first answer wins, within DOH_BUDGET_S: the core's connect timeouts (3-10 s)
+    include this lookup. When none answers, DoH counts as unreachable for
+    DOH_RETRY_S, so later lookups go straight to the system's answer."""
+    global _doh_down_until
     rtype = 28 if family == socket.AF_INET6 else 1
     key = (name.lower(), rtype)
     now = time.monotonic()
@@ -126,21 +138,38 @@ def resolve_doh(name: str, family: int = 0) -> List[str]:
         hit = _cache.get(key)
         if hit and hit[0] > now:
             return hit[1]
-    for server in DOH_SERVERS:
-        try:
-            answer = _fetch_json(f"{server}?name={name}&type={'AAAA' if rtype == 28 else 'A'}")
-        except Exception as exc:
-            log.debug("AndMTProto: DNS over HTTPS via %s failed: %r", server.split("/")[2], exc)
-            continue
-        records = [a for a in answer.get("Answer") or [] if a.get("type") == rtype]
-        ips = [str(a.get("data", "")) for a in records if _is_ip(str(a.get("data", "")))]
-        if not ips:
-            continue
-        ttl = min([int(a.get("TTL", _MIN_TTL_S)) for a in records] or [_MIN_TTL_S])
-        with _lock:
-            _cache[key] = (now + max(_MIN_TTL_S, min(ttl, _MAX_TTL_S)), ips)
-        log.info("AndMTProto: a Cloudflare name resolved through DNS over HTTPS (%s)", server.split("/")[2])
-        return ips
+        if now < _doh_down_until:
+            return []
+    query = f"?name={name}&type={'AAAA' if rtype == 28 else 'A'}"
+    futures = {_pool.submit(_fetch_json, server + query): server for server in DOH_SERVERS}
+    reached = False
+    try:
+        for future in concurrent.futures.as_completed(futures, timeout=DOH_BUDGET_S):
+            server = futures[future].split("/")[2]
+            try:
+                answer = future.result()
+            except Exception as exc:
+                log.debug("AndMTProto: DNS over HTTPS via %s failed: %r", server, exc)
+                continue
+            reached = True
+            records = [a for a in answer.get("Answer") or [] if a.get("type") == rtype]
+            ips = [str(a.get("data", "")) for a in records if _is_ip(str(a.get("data", "")))]
+            if not ips:
+                continue
+            ttl = min([int(a.get("TTL", _MIN_TTL_S)) for a in records] or [_MIN_TTL_S])
+            with _lock:
+                _cache[key] = (now + max(_MIN_TTL_S, min(ttl, _MAX_TTL_S)), ips)
+            log.info("AndMTProto: a Cloudflare name resolved through DNS over HTTPS (%s)", server)
+            return ips
+    except concurrent.futures.TimeoutError:
+        pass
+    with _lock:
+        if reached:  # the servers answer, just not for this name: ask again later
+            _cache[key] = (now + DOH_RETRY_S, [])
+        else:
+            _doh_down_until = now + DOH_RETRY_S
+            log.info("AndMTProto: DNS over HTTPS doesn't answer here; using the system's DNS for %.0f s",
+                     DOH_RETRY_S)
     return []
 
 
