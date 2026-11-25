@@ -49,6 +49,7 @@ from proxy.tg_ws_proxy import _run
 from proxy.utils import DomainCensorFilter, get_link_host
 
 import cf_outcomes
+import log_repeats
 import tls_bypass
 import ws_pool_control
 
@@ -314,6 +315,7 @@ def _setup_logging(log_dir: str, cfg: Dict[str, Any]) -> None:
     fh.setFormatter(file_fmt)
     console.setFormatter(fmt)
     for h in (fh, console):
+        log_repeats.attach(h)  # first: its summary lines go through the others
         h.addFilter(DomainCensorFilter())
         h.addFilter(SecretCensorFilter())
         root.addHandler(h)
