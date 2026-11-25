@@ -151,7 +151,7 @@
     <string name="share_full_log">Отправить весь лог</string>
     <string name="cf_transport">Подключение к CF</string>
     <string name="cf_transport_auto">Выбирать автоматически</string>
-    <string name="cf_transport_auto_body">AndMTProto проверяет способы ниже при каждом запуске, при смене сети и если Telegram перестал получать данные, и использует первый рабочий: TLS с обходом, обычный TLS, без TLS. Рекомендуется.</string>
+    <string name="cf_transport_auto_body">AndMTProto проверяет способы ниже при каждом запуске, при смене сети и если Telegram перестал получать данные, и использует первый рабочий: TLS с обходом, обычный TLS, без TLS. Способ, который проходит проверку, но не пропускает данные Telegram, в этой сети несколько часов не используется. Рекомендуется.</string>
     <string name="cf_auto_now">Сейчас: %1$s</string>
     <string name="cf_auto_checked">%1$s · проверено в %2$s</string>
     <string name="cf_auto_check_failed">%1$s · не удалось проверить в %2$s</string>
