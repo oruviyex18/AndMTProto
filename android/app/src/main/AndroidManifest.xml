@@ -68,6 +68,12 @@
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
 
+        <!-- Starts the proxy again if the firmware unloaded it (ProxyWatch). -->
+        <service
+            android:name=".ProxyReviveJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
         <!-- Disabled until the user turns on "Start on boot" (BootReceiver.setEnabled). -->
         <receiver
             android:name=".BootReceiver"

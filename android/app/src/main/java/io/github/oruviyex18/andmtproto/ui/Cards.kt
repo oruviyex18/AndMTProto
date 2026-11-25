@@ -1,6 +1,7 @@
 package io.github.oruviyex18.andmtproto.ui
 
 import android.os.PowerManager
+import android.text.format.DateUtils
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,8 +37,10 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import io.github.oruviyex18.andmtproto.BuildConfig
 import io.github.oruviyex18.andmtproto.ProxyError
+import io.github.oruviyex18.andmtproto.ProxyWatch
 import io.github.oruviyex18.andmtproto.R
 import kotlinx.coroutines.delay
+import java.text.DateFormat
 
 /**
  * A card that appears only while something needs doing. Actions go in a row at the
@@ -100,6 +103,33 @@ internal fun StalledCard(onRestart: () -> Unit) {
         content = MaterialTheme.colorScheme.onErrorContainer,
     ) {
         TextButton(onClick = onRestart) { Text(stringResource(R.string.restart_proxy)) }
+    }
+}
+
+/**
+ * The phone's firmware unloaded the proxy, or it crashed, while it was on
+ * ([ProxyWatch.checkLastExit]); stays until the user dismisses it.
+ */
+@Composable
+internal fun StoppedCard(stop: ProxyWatch.Stop, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val at = remember(stop.atMillis) {
+        // The time today, else the date.
+        DateUtils.formatSameDayTime(stop.atMillis, System.currentTimeMillis(), DateFormat.SHORT, DateFormat.SHORT).toString()
+    }
+    val crash = stop.kind == ProxyWatch.StopKind.CRASH
+    AttentionCard(
+        title = stringResource(if (crash) R.string.card_stopped_crash_title else R.string.card_stopped_system_title, at),
+        body = stringResource(if (crash) R.string.card_stopped_crash_body else R.string.card_stopped_system_body),
+        container = MaterialTheme.colorScheme.tertiaryContainer,
+        content = MaterialTheme.colorScheme.onTertiaryContainer,
+    ) {
+        TextButton(onClick = onDismiss) { Text(stringResource(R.string.card_ok)) }
+        if (!crash) {
+            TextButton(onClick = { context.openBatteryOptimizationSettings() }) {
+                Text(stringResource(R.string.battery_button))
+            }
+        }
     }
 }
 

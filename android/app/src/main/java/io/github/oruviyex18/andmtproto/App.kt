@@ -25,12 +25,18 @@ class App : Application() {
             manager.createNotificationChannel(NotificationChannel(
                 UPDATES_CHANNEL_ID, getString(R.string.channel_updates), NotificationManager.IMPORTANCE_DEFAULT
             ))
+            manager.createNotificationChannel(NotificationChannel(
+                STOPPED_CHANNEL_ID, getString(R.string.channel_stopped), NotificationManager.IMPORTANCE_DEFAULT
+            ))
         }
+        // Why the last process ended, if the proxy was on then (Android 11+).
+        ProxyWatch.checkLastExit(this)
         UpdateCheck.schedule(this, settings.checkUpdates)
     }
 
     companion object {
         const val CHANNEL_ID = "proxy"
         const val UPDATES_CHANNEL_ID = "updates"
+        const val STOPPED_CHANNEL_ID = "stopped"
     }
 }
