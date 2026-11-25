@@ -194,7 +194,7 @@
     <string name="update_close">Закрыть</string>
     <string name="route_check_open">Проверить маршруты</string>
     <string name="route_check_title">Маршруты до Telegram</string>
-    <string name="route_checking">Проверяю каждый маршрут настоящим запросом к Telegram… до 20 секунд</string>
+    <string name="route_checking">Проверяю каждый маршрут настоящим запросом к Telegram… до 30 секунд</string>
     <string name="route_not_running">Сначала запустите прокси.</string>
     <string name="route_direct">Прямой WebSocket</string>
     <string name="route_cf_bypass">CF: TLS с обходом</string>

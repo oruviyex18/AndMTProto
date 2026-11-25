@@ -1004,7 +1004,7 @@ def check_routes(timeout: float = _PROBE_TIMEOUT_S) -> str:
     "full": the large check (over 24 KB each way, to Cloudflare) passed;
     null where it isn't run. Workers are numbered, not named: the list
     reaches the report. Needs a started core (its settings); [] otherwise."""
-    if _proxy_thread is None:
+    if not _is_running():  # a core that died keeps its thread until stop()
         return json.dumps([])
     return json.dumps(asyncio.run(_check_routes(timeout)))
 

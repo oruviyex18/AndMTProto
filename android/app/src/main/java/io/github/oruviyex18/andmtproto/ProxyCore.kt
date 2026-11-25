@@ -223,7 +223,7 @@ object ProxyCore {
 
     /**
      * Checks every way to Telegram with a real request (android_entry.check_routes,
-     * up to ~20 s) off the lifecycle thread; empty when the core isn't running.
+     * up to ~30 s) off the lifecycle thread; empty when the core isn't running.
      */
     suspend fun checkRoutes(): List<RouteCheck> = withContext(Dispatchers.IO) {
         try {

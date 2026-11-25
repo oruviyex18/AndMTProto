@@ -524,7 +524,7 @@ def test_probe_cf_skipped_without_cf_proxy(monkeypatch):
 def test_check_routes_times_each_way_with_a_real_request(monkeypatch):
     """Direct WebSocket, the three CF ways and the user's Workers, each with
     the request Telegram sends first; the CF ways that answer get the large check."""
-    monkeypatch.setattr(android_entry, "_proxy_thread", object())  # a started core
+    monkeypatch.setattr(android_entry, "_is_running", lambda: True)  # a started core
     monkeypatch.setattr(android_entry.proxy_config, "fallback_cfproxy", True)
     monkeypatch.setattr(android_entry.proxy_config, "disable_secure", False)
     monkeypatch.setattr(android_entry.proxy_config, "dc_redirects", {2: "149.154.167.220"})
@@ -550,6 +550,12 @@ def test_check_routes_times_each_way_with_a_real_request(monkeypatch):
     assert ("w.example.workers.dev", "w.example.workers.dev", "/apiws?dst=149.154.167.51&dc=2", True) in asked
 
 
-def test_check_routes_needs_a_started_core(monkeypatch):
+def test_check_routes_needs_a_running_core(monkeypatch):
     monkeypatch.setattr(android_entry, "_proxy_thread", None)
+    assert json.loads(android_entry.check_routes()) == []
+
+    class Dead:  # a core thread that ended on an error keeps its reference
+        def is_alive(self):
+            return False
+    monkeypatch.setattr(android_entry, "_proxy_thread", Dead())
     assert json.loads(android_entry.check_routes()) == []

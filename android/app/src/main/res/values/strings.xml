@@ -198,7 +198,7 @@
     <string name="update_close">Close</string>
     <string name="route_check_open">Check routes</string>
     <string name="route_check_title">Routes to Telegram</string>
-    <string name="route_checking">Checking every route with a real request to Telegram… up to 20 seconds</string>
+    <string name="route_checking">Checking every route with a real request to Telegram… up to 30 seconds</string>
     <string name="route_not_running">Start the proxy first.</string>
     <string name="route_direct">Direct WebSocket</string>
     <string name="route_cf_bypass">CF: TLS with the bypass</string>
