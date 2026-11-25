@@ -48,6 +48,18 @@ class CfAutoTest {
     }
 
     @Test
+    fun dnsSettingsSurviveSavingAndDefaultToOff() {
+        val s = ProxySettings(cfDoh = true, cfIp = "104.16.0.1")
+        val back = ProxySettings.fromJson(s.toJson())
+        assertEquals(true, back.cfDoh)
+        assertEquals("104.16.0.1", back.cfIp)
+        // Settings saved before these existed.
+        val old = ProxySettings.fromJson(JSONObject().put("port", 1444))
+        assertEquals(false, old.cfDoh)
+        assertEquals("", old.cfIp)
+    }
+
+    @Test
     fun pickingAWayTurnsAutomaticOffButTheServiceKeepsIt() {
         val auto = ProxySettings().withCfAuto()
         assertTrue(auto.cfAuto)

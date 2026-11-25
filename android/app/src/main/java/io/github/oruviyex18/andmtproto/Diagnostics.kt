@@ -55,6 +55,7 @@ internal fun settingsSummary(s: ProxySettings): String {
         "CF Worker ${count(s.cfWorkerEnabled, s.cfWorkerDomains)}, " +
         "Fake TLS ${if (s.fakeTlsDomain.isBlank()) "off" else "on"}, " +
         "DC routes ${s.dcIp.size}, pool ${s.poolSize}, buffer ${s.bufKb} KB" +
+        (if (s.cfDoh) ", DNS over HTTPS" else "") + (if (s.cfIp.isNotBlank()) ", own Cloudflare IP" else "") +
         (if (s.forceTestDc) ", test DCs" else "") + (if (s.verbose) ", verbose" else "")
 }
 

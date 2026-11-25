@@ -51,6 +51,10 @@ data class ProxySettings(
     val tlsBypass: Boolean = true,
     /** Android-only: the bypass strategy, ByeDPI-style or "auto" ([TlsStrategies]). */
     val tlsStrategy: String = TlsStrategies.DEFAULT,
+    /** Android-only: Cloudflare names through DNS over HTTPS first (cf_dns.py); else only when the system's DNS fails. */
+    val cfDoh: Boolean = false,
+    /** Android-only: one Cloudflare IP for all Cloudflare hosts, or empty (cf_dns.py). */
+    val cfIp: String = "",
     val verbose: Boolean = false,
     /** Android-only; ignored by the Python core. On for new installs. */
     val startOnBoot: Boolean = true,
@@ -96,6 +100,8 @@ data class ProxySettings(
         .put("no_secure", noSecure)
         .put("tls_bypass", tlsBypass)
         .put("tls_strategy", tlsStrategy)
+        .put("cf_doh", cfDoh)
+        .put("cf_ip", cfIp)
         .put("cf_auto", cfAuto)
         .put("verbose", verbose)
         .put("start_on_boot", startOnBoot)
@@ -123,6 +129,8 @@ data class ProxySettings(
                 noSecure = o.optBoolean("no_secure", d.noSecure),
                 tlsBypass = o.optBoolean("tls_bypass", d.tlsBypass),
                 tlsStrategy = o.optString("tls_strategy", d.tlsStrategy),
+                cfDoh = o.optBoolean("cf_doh", d.cfDoh),
+                cfIp = o.optString("cf_ip", d.cfIp),
                 // Before "Choose automatically" existed, the bypass (the default) already
                 // switched by itself, so it becomes automatic; a choice of plain TLS or no
                 // TLS stays (SettingsStore.load also moves a "no TLS" it set itself).

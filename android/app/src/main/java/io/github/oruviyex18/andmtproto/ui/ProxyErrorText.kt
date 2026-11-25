@@ -15,6 +15,7 @@ internal fun ProxyError.message(context: Context): String {
         "bad_port" -> context.getString(R.string.error_bad_port, d)
         "bad_dc_ip" -> context.getString(R.string.error_bad_dc_ip, d)
         "bad_fake_tls" -> context.getString(R.string.error_bad_fake_tls, d)
+        "bad_cf_ip" -> context.getString(R.string.error_bad_cf_ip, d)
         "bad_tls_strategy" -> context.getString(R.string.error_bad_tls_strategy, d)
         else -> context.getString(R.string.error_unknown, detail ?: code)
     }

@@ -11,7 +11,7 @@ probe_cf(), forget_cf_pick(), set_pool_paused(), check_tls_strategy() and
 proxy_link();
 config and status travel as JSON strings. Errors reach Kotlin as
 {"code", "detail", "suggested_port"} so the UI can show them in its own
-language. Codes: bad_secret, bad_port, bad_dc_ip, bad_fake_tls,
+language. Codes: bad_secret, bad_port, bad_dc_ip, bad_fake_tls, bad_cf_ip,
 bad_tls_strategy, port_in_use, permission, address, unknown.
 """
 from __future__ import annotations
@@ -48,6 +48,7 @@ from proxy import utils as proxy_utils
 from proxy.tg_ws_proxy import _run
 from proxy.utils import DomainCensorFilter, get_link_host
 
+import cf_dns
 import cf_outcomes
 import tls_bypass
 import ws_pool_control
@@ -81,6 +82,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # AndMTProto only: see tls_bypass.py.
     "tls_bypass": True,
     "tls_strategy": tls_bypass.AUTO,
+    # AndMTProto only: see cf_dns.py.
+    "cf_doh": False,
+    "cf_ip": "",
 }
 
 # How far above a busy port to look for a free one.
@@ -209,6 +213,9 @@ def _apply_config(cfg: Dict[str, Any]) -> None:
     """Port of tray_common.apply_proxy_config; raises ConfigError on bad input."""
     secret, port, fake_tls = _secret(cfg), _port(cfg), _fake_tls_domain(cfg)
     strategy = _tls_strategy(cfg)
+    cf_ip = str(cfg["cf_ip"]).strip()
+    if cf_dns.check_ip(cf_ip):
+        raise ConfigError("bad_cf_ip", cf_ip)
     try:
         dc_redirects = parse_dc_ip_list(cfg["dc_ip"])
     except ValueError as exc:
@@ -239,6 +246,7 @@ def _apply_config(cfg: Dict[str, Any]) -> None:
     if strategy is None:  # automatic: the usual strategy until _auto_pick() has checked
         strategy = tls_bypass.parse(tls_bypass.DEFAULT_STRATEGY)
     tls_bypass.configure(strategy if cfg["tls_bypass"] else None, _bypass_domains)
+    cf_dns.configure(_cf_hosts, always_doh=bool(cfg["cf_doh"]), cf_ip=cf_ip or None)
 
 
 # The strategy probe_cf tries, set by start() even while the bypass is off;
@@ -276,6 +284,14 @@ def _bypass_domains() -> List[str]:
     return (list(CFPROXY_DEFAULT_DOMAINS) + list(balancer.domains or [])
             + list(pc.cfproxy_user_domains) + list(pc.cfproxy_worker_domains)
             + ["web.telegram.org"])
+
+
+def _cf_hosts() -> List[str]:
+    """Hosts on Cloudflare that the core opens by name: the CF proxy domains,
+    the user's own, and their Workers (see cf_dns.py)."""
+    pc = proxy_config
+    return (list(CFPROXY_DEFAULT_DOMAINS) + list(balancer.domains or [])
+            + list(pc.cfproxy_user_domains) + list(pc.cfproxy_worker_domains))
 
 
 def check_tls_strategy(text: str) -> str:
