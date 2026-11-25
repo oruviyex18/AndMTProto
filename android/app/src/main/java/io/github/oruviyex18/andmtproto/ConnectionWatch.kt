@@ -55,27 +55,57 @@ internal class StallDetector(
  * with the bypass (Telegram answered, and over 24 KB went each way), but Telegram's
  * own connections got nothing back for 20 minutes, while no TLS carried 700 KB in a
  * minute: the watchdog restarted the core three times and the check picked the
- * bypass again each time. Kept for one network ([on]); another network starts empty.
+ * bypass again each time (on 24 Nov the same stall lasted two hours, with nine
+ * restarts). Kept for one network ([on]); another network starts empty. A way stays
+ * set aside for [keepMs], also across the user's stops and starts, so each start
+ * doesn't wait through the stall again; a reboot starts afresh.
  */
-internal class StalledWays {
+internal class StalledWays(private val keepMs: Long = 6 * 60 * 60_000L) {
     private var network: Any? = null
-    private val ways = mutableSetOf<CfTransport>()
+    private val since = mutableMapOf<CfTransport, Long>()
 
-    /** The ways that stalled on [on]. */
-    fun on(on: Any): Set<CfTransport> = if (on == network) ways.toSet() else emptySet()
+    /** The ways set aside on [on] at [now] (ms, elapsedRealtime). */
+    fun on(on: Any, now: Long): Set<CfTransport> =
+        if (on != network) emptySet() else since.filterValues { now - it < keepMs }.keys
 
-    /** Records that [way] carried nothing on [on]; false if it was already recorded. */
-    fun add(on: Any, way: CfTransport): Boolean {
+    /** Sets [way] aside on [on] at [now]; false if it already was. */
+    fun add(on: Any, way: CfTransport, now: Long): Boolean {
         if (on != network) {
             network = on
-            ways.clear()
+            since.clear()
         }
-        return ways.add(way)
+        if (way in on(on, now)) return false
+        since[way] = now
+        return true
     }
 
-    fun clear() {
-        network = null
-        ways.clear()
+    /** Takes [way] back on [on]: it's the only way the check still passes. */
+    fun remove(on: Any, way: CfTransport) {
+        if (on == network) since.remove(way)
+    }
+}
+
+/**
+ * What a CF check leads to: the way to use ([target], null when none works),
+ * whether the network cuts every way off ([cutOff], from the check alone), and
+ * whether [target] was set aside and is taken back ([takeBack]).
+ */
+internal data class CfOutcome(val target: CfTransport?, val cutOff: Boolean, val takeBack: Boolean = false)
+
+/**
+ * The way "Choose automatically" uses after a check: the first that works of those
+ * not set aside ([stalled]). When only set-aside ways pass, it keeps [current] if the
+ * check passes it, else takes back the first set-aside way that works: a way that
+ * stalled once beats one the check fails now (port 80 blocked later, say).
+ */
+internal fun cfCheckOutcome(probe: ProxyCore.CfProbe, stalled: Set<CfTransport>, current: CfTransport): CfOutcome {
+    val all = chooseCfTransport(probe)
+    val rest = chooseCfTransport(probe, stalled).target
+    return when {
+        rest != null -> CfOutcome(rest, all.cutOff)
+        all.target == null -> CfOutcome(null, all.cutOff)
+        probe.works(current) -> CfOutcome(current, all.cutOff)
+        else -> CfOutcome(all.target, all.cutOff, takeBack = true)
     }
 }
 

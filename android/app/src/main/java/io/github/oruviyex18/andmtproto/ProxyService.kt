@@ -59,9 +59,6 @@ class ProxyService : Service() {
     /** When CF connections failing started the last check ([watchCfFailures]; elapsedRealtime). */
     private var cfFailureCheckAt = NEVER
 
-    /** Ways "Choose automatically" saw carry nothing although its check passed them. */
-    private val stalledWays = StalledWays()
-
     /** The log already says why the watchdog doesn't restart on a network that cuts Cloudflare off. */
     private var cutOffNoted = false
 
@@ -148,7 +145,6 @@ class ProxyService : Service() {
         // A start or a restart by the user (e.g. new settings) checks the CF connection again.
         startCheckedOn = null
         stallCheckedOn = null
-        stalledWays.clear()
         freshPickNext = true
         cfFailureCheckAt = NEVER
         cfCheckJob?.cancel()
@@ -255,7 +251,7 @@ class ProxyService : Service() {
             checkedHere = on == stallCheckedOn,
             cfOpened = stalls.cfOpened,
             current = settings.cfTransport,
-            stalled = on?.let { stalledWays.on(it) } ?: emptySet(),
+            stalled = on?.let { stalledWays.on(it, now) } ?: emptySet(),
         )
         if (on != null && step == CfStallStep.RECHECK) {
             stallCheckedOn = on
@@ -263,7 +259,7 @@ class ProxyService : Service() {
             return false
         }
         if (on != null && step == CfStallStep.SET_ASIDE) {
-            stalledWays.add(on, settings.cfTransport)
+            stalledWays.add(on, settings.cfTransport, now)
             ProxyCore.note(
                 "Nothing gets through over ${label(settings.cfTransport)} on ${describeNetwork(on)} " +
                     "although ${stalls.cfOpened} CF connections opened; trying another way"
@@ -348,22 +344,20 @@ class ProxyService : Service() {
             return
         }
         noteProbe(on, probe)
-        // What the check says on its own decides the cards and the cut-off state; the
-        // ways set aside only change which of the working ways is used.
-        val (anyWay, cutOff) = chooseCfTransport(probe)
-        val target = chooseCfTransport(probe, stalledWays.on(on)).target
+        // The cards and the cut-off state come from the check alone; the ways set
+        // aside only change which of the working ways is used.
+        val (target, cutOff, takeBack) =
+            cfCheckOutcome(probe, stalledWays.on(on, SystemClock.elapsedRealtime()), settings.cfTransport)
         ProxyCore.setCfCheck(
-            ProxyCore.CfCheck(
-                on, describeNetwork(on), System.currentTimeMillis(),
-                target ?: anyWay?.let { settings.cfTransport }, cutOff,
-            )
+            ProxyCore.CfCheck(on, describeNetwork(on), System.currentTimeMillis(), target, cutOff)
         )
         if (target == null) {
-            ProxyCore.note(
-                (if (anyWay == null) "No way to reach the CF proxy works" else "No other way to reach the CF proxy works") +
-                    " on ${describeNetwork(on)}; keeping ${label(settings.cfTransport)}"
-            )
+            ProxyCore.note("No way to reach the CF proxy works on ${describeNetwork(on)}; keeping ${label(settings.cfTransport)}")
             return
+        }
+        if (takeBack) {
+            stalledWays.remove(on, target)
+            ProxyCore.note("Only ${label(target)} works on ${describeNetwork(on)}, which carried nothing earlier; trying it again")
         }
         if (cutOff) {
             ProxyCore.note(
@@ -525,6 +519,12 @@ class ProxyService : Service() {
         private const val ACTION_START = "start"
         private const val ACTION_RESTART = "restart"
         private const val ACTION_STOP = "stop"
+
+        /**
+         * Ways "Choose automatically" saw carry nothing although its check passed them;
+         * kept for the app process, so a stop and start doesn't go through the stall again.
+         */
+        private val stalledWays = StalledWays()
 
         /** Starts the proxy, or restarts it with the saved settings when [restart] is true. */
         fun start(context: Context, restart: Boolean = false) {

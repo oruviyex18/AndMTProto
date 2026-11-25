@@ -104,17 +104,38 @@ class CfAutoTest {
 
     @Test
     fun stalledWaysAreKeptPerNetwork() {
-        val ways = StalledWays()
-        assertEquals(emptySet<CfTransport>(), ways.on("mobile"))
-        assertTrue(ways.add("mobile", CfTransport.BYPASS))
-        assertFalse("once per way", ways.add("mobile", CfTransport.BYPASS))
-        assertTrue(ways.add("mobile", CfTransport.PLAIN))
-        assertEquals(setOf(CfTransport.BYPASS, CfTransport.PLAIN), ways.on("mobile"))
-        assertEquals(emptySet<CfTransport>(), ways.on("wifi"))
-        assertTrue("another network starts afresh", ways.add("wifi", CfTransport.BYPASS))
-        assertEquals(emptySet<CfTransport>(), ways.on("mobile"))
-        ways.clear()
-        assertEquals(emptySet<CfTransport>(), ways.on("wifi"))
+        val ways = StalledWays(keepMs = 1_000)
+        assertEquals(emptySet<CfTransport>(), ways.on("mobile", 0))
+        assertTrue(ways.add("mobile", CfTransport.BYPASS, 0))
+        assertFalse("once per way", ways.add("mobile", CfTransport.BYPASS, 10))
+        assertTrue(ways.add("mobile", CfTransport.PLAIN, 500))
+        assertEquals(setOf(CfTransport.BYPASS, CfTransport.PLAIN), ways.on("mobile", 600))
+        assertEquals("the bypass's time is up", setOf(CfTransport.PLAIN), ways.on("mobile", 1_200))
+        assertTrue("set aside again once its time is up", ways.add("mobile", CfTransport.BYPASS, 1_200))
+        ways.remove("mobile", CfTransport.PLAIN)
+        assertEquals("taken back", setOf(CfTransport.BYPASS), ways.on("mobile", 1_300))
+        assertEquals(emptySet<CfTransport>(), ways.on("wifi", 1_300))
+        assertTrue("another network starts afresh", ways.add("wifi", CfTransport.BYPASS, 1_300))
+        assertEquals(emptySet<CfTransport>(), ways.on("mobile", 1_300))
+    }
+
+    @Test
+    fun aCheckWithWaysSetAside() {
+        val bypass = CfTransport.BYPASS
+        val plain = CfTransport.PLAIN
+        val aside = setOf(bypass)
+        // Another way works: use it; the cut-off state comes from the check alone.
+        assertEquals(CfOutcome(plain, false), cfCheckOutcome(probe(true, false, true), aside, bypass))
+        assertEquals(
+            CfOutcome(CfTransport.TLS, false),
+            cfCheckOutcome(probe(true, true, false, tlsFull = false), aside, bypass),
+        )
+        // Only the set-aside way passes and the current one does too: keep it.
+        assertEquals(CfOutcome(plain, false), cfCheckOutcome(probe(true, false, true), setOf(bypass, plain), plain))
+        // Only the set-aside way passes, the current one doesn't (port 80 blocked later): take it back.
+        assertEquals(CfOutcome(bypass, false, takeBack = true), cfCheckOutcome(probe(true, false, false), aside, plain))
+        // Nothing works.
+        assertEquals(CfOutcome(null, false), cfCheckOutcome(probe(false, false, false), aside, plain))
     }
 
     @Test
