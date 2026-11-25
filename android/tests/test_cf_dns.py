@@ -194,3 +194,20 @@ def test_requests_that_never_left_the_queue_dont_mark_doh_down(dns, monkeypatch)
     finally:
         release.set()
         busy.shutdown(wait=True)
+
+
+def test_a_failing_system_dns_is_skipped_for_a_while(dns):
+    """A provider's DNS that doesn't answer costs seconds per lookup: after it
+    failed once for a name, DoH is asked first for that name."""
+    dns["doh"]["1.1.1.1"] = ["104.21.2.2"]
+    assert _ips(socket.getaddrinfo(CF, 443)) == ["104.21.2.2"]
+    assert dns["asked"].count(("system", CF)) == 1
+    assert _ips(socket.getaddrinfo(CF, 443)) == ["104.21.2.2"]
+    assert dns["asked"].count(("system", CF)) == 1  # not asked again
+
+
+def test_the_system_is_asked_again_when_doh_fails_too(dns):
+    dns["system"]["kws4.example-cf.com"] = ["10.10.34.35"]  # unusable, then DoH blocked
+    assert _ips(socket.getaddrinfo("kws4.example-cf.com", 443)) == ["10.10.34.35"]
+    # Skipped as first choice now, but still the answer when DoH has none.
+    assert _ips(socket.getaddrinfo("kws4.example-cf.com", 443)) == ["10.10.34.35"]

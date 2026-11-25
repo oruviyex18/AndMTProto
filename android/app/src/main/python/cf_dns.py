@@ -54,6 +54,9 @@ _doh_down_until = 0.0
 # Lookups of one name share a query (_inflight), so a few names need few threads.
 _pool = concurrent.futures.ThreadPoolExecutor(max_workers=12, thread_name_prefix="doh")
 _inflight: Dict[Tuple[str, int], "concurrent.futures.Future[List[str]]"] = {}
+# Names the system's DNS failed for or gave no public address for, until when:
+# meanwhile DoH is asked first (a DNS that doesn't answer costs seconds each time).
+_system_bad: Dict[str, float] = {}
 
 
 def configure(hosts: Callable[[], Iterable[str]], always_doh: bool = False,
@@ -63,6 +66,7 @@ def configure(hosts: Callable[[], Iterable[str]], always_doh: bool = False,
     _hosts, _always_doh, _cf_ip = hosts, bool(always_doh), (cf_ip or None)
     with _lock:
         _cache.clear()
+        _system_bad.clear()
         _doh_down_until = 0.0
     socket.getaddrinfo = _getaddrinfo
 
@@ -118,11 +122,17 @@ def _results(ips: List[str], port: Any, family: int, type_: int, proto: int) -> 
     return out
 
 
+_ssl_context: Any = None
+
+
 def _fetch_json(url: str) -> Dict[str, Any]:
     """One DNS-over-HTTPS query; tests replace it."""
-    from proxy.utils import create_ssl_context
+    global _ssl_context
+    if _ssl_context is None:  # once: it loads certifi's CA bundle
+        from proxy.utils import create_ssl_context
+        _ssl_context = create_ssl_context()
     request = urllib.request.Request(url, headers={"Accept": "application/dns-json"})
-    with urllib.request.urlopen(request, timeout=DOH_TIMEOUT_S, context=create_ssl_context()) as reply:
+    with urllib.request.urlopen(request, timeout=DOH_TIMEOUT_S, context=_ssl_context) as reply:
         return json.loads(reply.read(65536).decode("utf-8"))
 
 
@@ -211,15 +221,22 @@ def _getaddrinfo(host: Any, port: Any, family: int = 0, type: int = 0,
         return _results([_cf_ip], port, family, type, proto)
     system_error: Optional[BaseException] = None
     system_results: Optional[List[Any]] = None
-    if not _always_doh:
+    key = name.lower().rstrip(".")
+    with _lock:
+        system_first = not _always_doh and _system_bad.get(key, 0.0) <= time.monotonic()
+    if system_first:
         try:
             system_results = _original_getaddrinfo(host, port, family, type, proto, flags)
             if _usable(system_results):
                 return system_results
-            log.info("AndMTProto: the system's DNS gave no public address for a Cloudflare name; "
-                     "asking DNS over HTTPS")
+            reason = "gave no public address"
         except OSError as exc:  # socket.gaierror
             system_error = exc
+            reason = "failed"
+        with _lock:
+            _system_bad[key] = time.monotonic() + DOH_RETRY_S
+        log.info("AndMTProto: the system's DNS %s for a Cloudflare name; asking DNS over HTTPS "
+                 "first for %.0f s", reason, DOH_RETRY_S)
     ips = resolve_doh(name, family)
     if ips:
         return _results(ips, port, family, type, proto)
