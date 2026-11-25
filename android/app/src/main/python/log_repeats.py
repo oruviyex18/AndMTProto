@@ -56,8 +56,11 @@ class RepeatFilter(logging.Filter):
             self._since = self._clock()
             if not repeat:
                 self._last, self._last_record = key, record
-        if summary is not None:
-            self._handler.handle(summary)
+            # Written while the lock is held, so another thread's line can't come
+            # between the run and its count. The handler's own lock is separate,
+            # and this filter passes summaries without taking this one.
+            if summary is not None:
+                self._handler.handle(summary)
         return not repeat
 
     def _summary(self) -> Optional[logging.LogRecord]:

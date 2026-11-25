@@ -90,3 +90,25 @@ def test_summaries_go_through_the_handlers_other_filters():
     log.info("[127.0.0.1:2] x")
     log.info("y")
     assert seen == ["[127.0.0.1:1] x", "(the line above repeated 1 more time, ports aside)", "y"]
+
+
+def test_threads_logging_at_once_keep_each_summary_under_its_run():
+    import threading
+    log, lines = _logger()
+    barrier = threading.Barrier(4)
+
+    def worker(n):
+        barrier.wait()
+        for i in range(200):
+            log.info("[127.0.0.1:%d] worker %d line", 1000 + i, n)
+
+    threads = [threading.Thread(target=worker, args=(n,)) for n in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    log.info("end")
+    # Every summary follows a line of the run it counts.
+    for i, line in enumerate(lines):
+        if line.startswith("(the line above"):
+            assert lines[i - 1].startswith("[127.0.0.1:") and " line" in lines[i - 1], lines[i - 1:i + 1]
