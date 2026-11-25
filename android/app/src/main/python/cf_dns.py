@@ -51,7 +51,9 @@ _cf_ip: Optional[str] = None
 _cache: Dict[Tuple[str, int], Tuple[float, List[str]]] = {}
 _lock = threading.Lock()
 _doh_down_until = 0.0
-_pool = concurrent.futures.ThreadPoolExecutor(max_workers=6, thread_name_prefix="doh")
+# Lookups of one name share a query (_inflight), so a few names need few threads.
+_pool = concurrent.futures.ThreadPoolExecutor(max_workers=12, thread_name_prefix="doh")
+_inflight: Dict[Tuple[str, int], "concurrent.futures.Future[List[str]]"] = {}
 
 
 def configure(hosts: Callable[[], Iterable[str]], always_doh: bool = False,
@@ -126,11 +128,12 @@ def _fetch_json(url: str) -> Dict[str, Any]:
 
 def resolve_doh(name: str, family: int = 0) -> List[str]:
     """Addresses for `name` from DNS over HTTPS (IPv6 only when asked for), cached for
-    their TTL; [] when no server answers. The servers are asked at once and the
-    first answer wins, within DOH_BUDGET_S: the core's connect timeouts (3-10 s)
-    include this lookup. When none answers, DoH counts as unreachable for
-    DOH_RETRY_S, so later lookups go straight to the system's answer."""
-    global _doh_down_until
+    their TTL; [] when no server answers. The core's connect timeouts (3-10 s)
+    include this lookup, so it takes at most DOH_BUDGET_S: the servers are asked
+    at once, the first answer wins, and lookups of a name already being asked wait
+    for that query instead of sending their own. When every server was asked and
+    none answered, DoH counts as unreachable for DOH_RETRY_S, so later lookups go
+    straight to the system's answer."""
     rtype = 28 if family == socket.AF_INET6 else 1
     key = (name.lower(), rtype)
     now = time.monotonic()
@@ -140,6 +143,27 @@ def resolve_doh(name: str, family: int = 0) -> List[str]:
             return hit[1]
         if now < _doh_down_until:
             return []
+        pending = _inflight.get(key)
+        mine = pending is None
+        if mine:
+            pending = _inflight[key] = concurrent.futures.Future()
+    if not mine:
+        try:
+            return pending.result(timeout=DOH_BUDGET_S)
+        except Exception:
+            return []
+    try:
+        ips = _query(name, key, rtype, now)
+    except Exception:  # never leave the waiters hanging
+        ips = []
+    with _lock:
+        _inflight.pop(key, None)
+    pending.set_result(ips)
+    return ips
+
+
+def _query(name: str, key: Tuple[str, int], rtype: int, now: float) -> List[str]:
+    global _doh_down_until
     query = f"?name={name}&type={'AAAA' if rtype == 28 else 'A'}"
     futures = {_pool.submit(_fetch_json, server + query): server for server in DOH_SERVERS}
     reached = False
@@ -163,10 +187,15 @@ def resolve_doh(name: str, family: int = 0) -> List[str]:
             return ips
     except concurrent.futures.TimeoutError:
         pass
+    # A request still queued behind others' was never sent: that says nothing
+    # about whether DoH works here.
+    all_sent = all(f.done() or f.running() for f in futures)
+    for f in futures:
+        f.cancel()  # drops those still queued
     with _lock:
         if reached:  # the servers answer, just not for this name: ask again later
             _cache[key] = (now + DOH_RETRY_S, [])
-        else:
+        elif all_sent:
             _doh_down_until = now + DOH_RETRY_S
             log.info("AndMTProto: DNS over HTTPS doesn't answer here; using the system's DNS for %.0f s",
                      DOH_RETRY_S)

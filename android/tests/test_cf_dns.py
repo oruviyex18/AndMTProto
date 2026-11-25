@@ -153,3 +153,44 @@ def test_check_ip():
     assert cf_dns.check_ip(" 104.16.0.1 ") == ""
     assert cf_dns.check_ip("2606:4700::1") == ""
     assert cf_dns.check_ip("cloudflare.com") == "cloudflare.com"
+
+
+def test_lookups_of_one_name_share_a_query(dns, monkeypatch):
+    """The CF check opens ~18 connections to 3 names at once: one query per name."""
+    import threading
+    import time
+    asked = []
+
+    def slow(url):
+        asked.append(url)
+        time.sleep(0.2)
+        return {"Status": 0, "Answer": [{"type": 1, "TTL": 300, "data": "104.21.2.2"}]}
+    monkeypatch.setattr(cf_dns, "_fetch_json", slow)
+    results = []
+    threads = [threading.Thread(target=lambda: results.append(_ips(socket.getaddrinfo(CF, 443))))
+               for _ in range(10)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert results == [["104.21.2.2"]] * 10
+    assert len(asked) == len(cf_dns.DOH_SERVERS)
+
+
+def test_requests_that_never_left_the_queue_dont_mark_doh_down(dns, monkeypatch):
+    """A lookup whose requests waited behind others' and ran out of time says
+    nothing about DoH: it isn't marked unreachable."""
+    import concurrent.futures
+    import threading
+    release = threading.Event()
+    busy = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    busy.submit(release.wait, 5)  # the only worker is taken
+    monkeypatch.setattr(cf_dns, "_pool", busy)
+    monkeypatch.setattr(cf_dns, "DOH_BUDGET_S", 0.2)
+    try:
+        dns["system"][CF] = ["10.0.0.1"]
+        assert _ips(socket.getaddrinfo(CF, 443)) == ["10.0.0.1"]
+        assert cf_dns._doh_down_until == 0.0
+    finally:
+        release.set()
+        busy.shutdown(wait=True)
