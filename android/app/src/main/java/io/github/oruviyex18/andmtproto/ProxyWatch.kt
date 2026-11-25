@@ -141,6 +141,8 @@ object ProxyWatch {
             putBoolean(KEY_STOP_LOGGED, false)
             putBoolean(KEY_STOP_DISMISSED, !worthACard(kind))
         }
+        // A force-stop in Android's settings is the user's stop: don't start the proxy again.
+        if (kind == StopKind.USER) setWanted(context, false)
     }
 
     /** Why the proxy last stopped without the user, if it did; null otherwise. */

@@ -104,6 +104,8 @@
     <string name="card_stopped_system_body">The firmware unloaded AndMTProto, and Telegram had no connection until the proxy started again. So that it does not happen again, allow AndMTProto to work in the background without limits.</string>
     <string name="card_stopped_crash_title">The proxy crashed at %1$s</string>
     <string name="card_stopped_crash_body">AndMTProto started it again. Please send the report to the developer: Log, then Send report.</string>
+    <string name="card_stopped_system_body_off">The firmware unloaded AndMTProto, and the proxy is stopped: start it with the button above. So that it does not happen again, allow AndMTProto to work in the background without limits.</string>
+    <string name="card_stopped_crash_body_off">Start it with the button above. Please send the report to the developer: Log, then Send report.</string>
     <string name="card_ok">OK</string>
     <string name="share_report">Send report</string>
     <string name="update_available_title">AndMTProto %1$s is available</string>

@@ -111,7 +111,7 @@ internal fun StalledCard(onRestart: () -> Unit) {
  * ([ProxyWatch.checkLastExit]); stays until the user dismisses it.
  */
 @Composable
-internal fun StoppedCard(stop: ProxyWatch.Stop, onDismiss: () -> Unit) {
+internal fun StoppedCard(stop: ProxyWatch.Stop, running: Boolean, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val at = remember(stop.atMillis) {
         // The time today, else the date.
@@ -120,7 +120,15 @@ internal fun StoppedCard(stop: ProxyWatch.Stop, onDismiss: () -> Unit) {
     val crash = stop.kind == ProxyWatch.StopKind.CRASH
     AttentionCard(
         title = stringResource(if (crash) R.string.card_stopped_crash_title else R.string.card_stopped_system_title, at),
-        body = stringResource(if (crash) R.string.card_stopped_crash_body else R.string.card_stopped_system_body),
+        // Whether it runs again: Android may not have let it start in the background.
+        body = stringResource(
+            when {
+                crash && running -> R.string.card_stopped_crash_body
+                crash -> R.string.card_stopped_crash_body_off
+                running -> R.string.card_stopped_system_body
+                else -> R.string.card_stopped_system_body_off
+            }
+        ),
         container = MaterialTheme.colorScheme.tertiaryContainer,
         content = MaterialTheme.colorScheme.onTertiaryContainer,
     ) {

@@ -107,7 +107,7 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
                     startProxy()
                 })
             }
-            stop?.let { StoppedCard(it, onDismiss = vm::dismissStop) }
+            stop?.let { StoppedCard(it, running = status.running, onDismiss = vm::dismissStop) }
             if (status.state == ProxyState.RUNNING && stalled) {
                 StalledCard(onRestart = { ProxyService.start(context, restart = true) })
             }
