@@ -97,6 +97,17 @@
     <string name="verbose">Verbose logging</string>
     <string name="check_updates_daily">Check for updates daily</string>
     <string name="channel_updates">Updates</string>
+    <string name="channel_stopped">Proxy stopped by the system</string>
+    <string name="revive_title">The proxy was stopped</string>
+    <string name="revive_text">The phone unloaded AndMTProto, and Android does not let it start the proxy again by itself. Tap to start it. To avoid this, allow AndMTProto to work in the background.</string>
+    <string name="card_stopped_system_title">The phone stopped the proxy at %1$s</string>
+    <string name="card_stopped_system_body">The firmware unloaded AndMTProto, and Telegram had no connection until the proxy started again. So that it does not happen again, allow AndMTProto to work in the background without limits.</string>
+    <string name="card_stopped_crash_title">The proxy crashed at %1$s</string>
+    <string name="card_stopped_crash_body">AndMTProto started it again. Please send the report to the developer: Log, then Send report.</string>
+    <string name="card_stopped_system_body_off">The firmware unloaded AndMTProto, and the proxy is stopped: start it with the button above. So that it does not happen again, allow AndMTProto to work in the background without limits.</string>
+    <string name="card_stopped_crash_body_off">Start it with the button above. Please send the report to the developer: Log, then Send report.</string>
+    <string name="card_ok">OK</string>
+    <string name="share_report">Send report</string>
     <string name="update_available_title">AndMTProto %1$s is available</string>
     <string name="update_available_text">You have %1$s. Tap to open AndMTProto and update.</string>
     <string name="start_on_boot">Start on boot</string>

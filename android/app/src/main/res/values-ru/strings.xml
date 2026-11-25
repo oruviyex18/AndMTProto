@@ -93,6 +93,17 @@
     <string name="verbose">Подробный лог</string>
     <string name="check_updates_daily">Ежедневно проверять обновления</string>
     <string name="channel_updates">Обновления</string>
+    <string name="channel_stopped">Прокси остановлен системой</string>
+    <string name="revive_title">Прокси остановлен</string>
+    <string name="revive_text">Телефон выгрузил AndMTProto, и Android не даёт ему самому запустить прокси снова. Нажмите, чтобы запустить. Чтобы это не повторялось, разрешите AndMTProto работу в фоне.</string>
+    <string name="card_stopped_system_title">Телефон остановил прокси в %1$s</string>
+    <string name="card_stopped_system_body">Прошивка выгрузила AndMTProto из памяти, и Telegram был без связи, пока прокси не запустился снова. Чтобы это не повторялось, разрешите AndMTProto работу в фоне без ограничений.</string>
+    <string name="card_stopped_crash_title">Прокси аварийно завершился в %1$s</string>
+    <string name="card_stopped_crash_body">AndMTProto запустил его снова. Пожалуйста, отправьте отчёт разработчику: «Лог» → «Отправить отчёт».</string>
+    <string name="card_stopped_system_body_off">Прошивка выгрузила AndMTProto из памяти, и прокси остановлен: запустите его кнопкой выше. Чтобы это не повторялось, разрешите AndMTProto работу в фоне без ограничений.</string>
+    <string name="card_stopped_crash_body_off">Запустите его кнопкой выше. Пожалуйста, отправьте отчёт разработчику: «Лог» → «Отправить отчёт».</string>
+    <string name="card_ok">Понятно</string>
+    <string name="share_report">Отправить отчёт</string>
     <string name="update_available_title">Доступна версия AndMTProto %1$s</string>
     <string name="update_available_text">У вас %1$s. Нажмите, чтобы открыть AndMTProto и обновить.</string>
     <string name="start_on_boot">Запускать при включении телефона</string>

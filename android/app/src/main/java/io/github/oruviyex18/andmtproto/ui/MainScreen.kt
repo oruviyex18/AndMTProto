@@ -59,6 +59,7 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
     val status by vm.status.collectAsStateWithLifecycle()
     val linked by vm.telegramLinked.collectAsStateWithLifecycle()
     val update by vm.update.collectAsStateWithLifecycle()
+    val stop by vm.stop.collectAsStateWithLifecycle()
     val updater by vm.updater.collectAsStateWithLifecycle()
     val stalled by ProxyCore.stalled.collectAsStateWithLifecycle()
     val cfCheck by ProxyCore.cfCheck.collectAsStateWithLifecycle()
@@ -106,6 +107,7 @@ fun MainScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
                     startProxy()
                 })
             }
+            stop?.let { StoppedCard(it, running = status.running, onDismiss = vm::dismissStop) }
             if (status.state == ProxyState.RUNNING && stalled) {
                 StalledCard(onRestart = { ProxyService.start(context, restart = true) })
             }

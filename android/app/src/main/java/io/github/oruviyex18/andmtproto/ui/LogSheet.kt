@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import io.github.oruviyex18.andmtproto.ProxyCore
 import io.github.oruviyex18.andmtproto.R
+import io.github.oruviyex18.andmtproto.diagnosticReport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -81,6 +82,17 @@ private suspend fun shareFullLog(context: Context) {
         putExtra(Intent.EXTRA_SUBJECT, "AndMTProto log")
         clipData = ClipData.newRawUri(null, uri) // lets the chooser preview and pass on the grant
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivitySafely(Intent.createChooser(send, null))
+}
+
+/** The diagnostic report ([diagnosticReport]) as text, to a chat or a mail. */
+private suspend fun shareReport(context: Context) {
+    val report = withContext(Dispatchers.IO) { context.diagnosticReport() }
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, report)
+        putExtra(Intent.EXTRA_SUBJECT, "AndMTProto report")
     }
     context.startActivitySafely(Intent.createChooser(send, null))
 }
@@ -134,6 +146,9 @@ fun LogSheet(onDismiss: () -> Unit) {
                 Button(onClick = { scope.launch { shareFullLog(context) } }, Modifier.weight(1f)) {
                     Text(stringResource(R.string.share_full_log))
                 }
+            }
+            OutlinedButton(onClick = { scope.launch { shareReport(context) } }, Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.share_report))
             }
         }
     }

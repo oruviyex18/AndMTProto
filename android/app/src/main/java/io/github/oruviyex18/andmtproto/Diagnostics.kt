@@ -122,3 +122,60 @@ internal fun ipv4Network(address: ByteArray, prefix: Int): String {
     val net = bits and mask
     return (3 downTo 0).joinToString(".") { ((net shr (it * 8)) and 0xFF).toString() }
 }
+
+/** "2026-11-14 12:34:56  WARNING ..." → a warning or an error line of the log. */
+private val WARNING_LINE = Regex("""^(?:\d{4}-\d\d-\d\d )?\d\d:\d\d:\d\d\s+(WARNING|ERROR)\b""")
+
+/**
+ * A plain-text report to attach to an issue: what ran where, how the proxy and
+ * the CF connection are doing, why the proxy last stopped, and the latest warnings.
+ * Like the log lines above, nothing in it identifies the user: no secret, no
+ * domains, no Wi-Fi name, no public IP (the log already has those censored).
+ */
+internal fun Context.diagnosticReport(): String {
+    val settings = SettingsStore(this).load()
+    val status = ProxyCore.state.value
+    val network = getSystemService(ConnectivityManager::class.java)?.activeNetwork
+    val check = ProxyCore.cfCheck.value
+    val time = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.ROOT)
+    fun at(millis: Long) = time.format(java.util.Date(millis))
+    return buildString {
+        appendLine("AndMTProto report, ${at(System.currentTimeMillis())}")
+        appendLine(deviceSummary())
+        appendLine(settingsSummary(settings))
+        appendLine("Network: ${describeNetwork(network)}; ${networkDetails(network)}")
+        appendLine(
+            "Proxy: " + (if (status.running) "running${if (status.listening) "" else ", not listening yet"}, core ${status.coreVersion}" else "stopped") +
+                (status.error?.let { ", error ${it.code}" } ?: "") +
+                "; the user wants it ${if (ProxyWatch.wanted(this@diagnosticReport)) "on" else "off"}"
+        )
+        appendLine(
+            "Connections: ${status.total} since start, ${status.lastHour} in the last hour, ${status.active} active; " +
+                "WebSocket ${status.ws}, Cloudflare ${status.cf}, used by Telegram ${status.routed}, " +
+                "wrong key ${status.badRecent}; down ${status.bytesDown} B, up ${status.bytesUp} B"
+        )
+        appendLine(
+            "CF proxy: ${status.cfOk} opened, ${status.cfFailed} failed; last 2 minutes ${status.cfRecent}; " +
+                "own Workers ${status.workerTrouble ?: "fine or not used"}"
+        )
+        check?.let {
+            appendLine(
+                "CF check: ${it.networkLabel} at ${at(it.atMillis)}: ${it.chosen ?: "nothing works"}" +
+                    (if (it.cutOff) ", cut off after about 16 KB" else "") + (if (it.failed) ", the check failed" else "")
+            )
+        }
+        ProxyWatch.lastStop(this@diagnosticReport)?.let {
+            appendLine("Last stop while on: ${it.kind.name.lowercase()} at ${at(it.atMillis)} (${it.detail})")
+        }
+        val exits = ProxyWatch.recentExits(this@diagnosticReport)
+        if (exits.isNotEmpty()) {
+            appendLine("Recent ends of the app's process:")
+            exits.forEach { appendLine("  $it") }
+        }
+        val warnings = ProxyCore.readLogTail(this@diagnosticReport, maxLines = 3000).lines()
+            .filter { WARNING_LINE.containsMatchIn(it) }.takeLast(40)
+        appendLine()
+        appendLine("Latest warnings and errors in the log (${warnings.size}):")
+        warnings.forEach { appendLine(it) }
+    }
+}

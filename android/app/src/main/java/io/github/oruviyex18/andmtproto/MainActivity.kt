@@ -23,6 +23,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        // The firmware may have unloaded the proxy while the app was away.
+        ProxyWatch.revive(this, "app opened")
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleIntent(intent)

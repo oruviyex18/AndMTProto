@@ -12,6 +12,7 @@ import io.github.oruviyex18.andmtproto.ProxyCore
 import io.github.oruviyex18.andmtproto.ProxyService
 import io.github.oruviyex18.andmtproto.ProxySettings
 import io.github.oruviyex18.andmtproto.ProxyStatus
+import io.github.oruviyex18.andmtproto.ProxyWatch
 import io.github.oruviyex18.andmtproto.SettingsStore
 import io.github.oruviyex18.andmtproto.UpdateCheck
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,6 +30,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _draft = MutableStateFlow(SettingsDraft(_saved.value))
     private val _telegramLinked = MutableStateFlow(isLinked(_saved.value))
     private val _update = MutableStateFlow(UpdateCheck.available(app))
+    private val _stop = MutableStateFlow(ProxyWatch.stopToExplain(app))
     private val backgroundDone = DoneFlag(KEY_MIUI_BACKGROUND_DONE)
     private val autostartDone = DoneFlag(KEY_MIUI_AUTOSTART_DONE, initial = migrateMiuiDone(app))
     private val oemAutostartFlag = DoneFlag(KEY_OEM_AUTOSTART_DONE)
@@ -46,6 +48,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     val telegramLinked: StateFlow<Boolean> = _telegramLinked.asStateFlow()
     val update: StateFlow<UpdateCheck.Available?> = _update.asStateFlow()
+
+    /** Why the phone last stopped the proxy, until the user dismisses it ([ProxyWatch]). */
+    val stop: StateFlow<ProxyWatch.Stop?> = _stop.asStateFlow()
 
     /** "Update the app": checking GitHub (see [AppUpdater]). */
     val updater: StateFlow<AppUpdater.State> = AppUpdater.state
@@ -140,6 +145,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** The main screen is shown again: pick up a release the daily check found meanwhile. */
     fun onScreenResumed() {
         _update.value = UpdateCheck.available(getApplication())
+        _stop.value = ProxyWatch.stopToExplain(getApplication())
+    }
+
+    fun dismissStop() {
+        ProxyWatch.dismissStop(getApplication())
+        _stop.value = null
     }
 
     fun closeUpdate() {

@@ -96,6 +96,7 @@ class ProxyService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        running = true
         try {
             connectivity.registerDefaultNetworkCallback(networkCallback)
         } catch (e: RuntimeException) {
@@ -133,14 +134,17 @@ class ProxyService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            ProxyWatch.setWanted(this, false)
             stopSelf()
             return START_NOT_STICKY
         }
         settings = SettingsStore(this).load()
         if (!enterForeground()) {
-            stopSelf()
+            stopSelf() // still wanted: the revive job or opening the app tries again
             return START_NOT_STICKY
         }
+        ProxyWatch.setWanted(this, true)
+        getSystemService(NotificationManager::class.java).cancel(ProxyWatch.NOTIFICATION_ID)
         val restart = intent?.action == ACTION_RESTART
         // A start or a restart by the user (e.g. new settings) checks the CF connection again.
         startCheckedOn = null
@@ -165,6 +169,7 @@ class ProxyService : Service() {
         scope.cancel()
         ProxyCore.setCfCheck(null)
         ProxyCore.stopInBackground()
+        running = false
         super.onDestroy()
     }
 
@@ -176,6 +181,7 @@ class ProxyService : Service() {
             ProxyCore.forgetCfPick()
         }
         if (ProxyCore.start(this, current) != null) {
+            ProxyWatch.setWanted(this, false) // starting again wouldn't help
             stopSelf()  // config error; it stays in ProxyCore.state for the UI
             return
         }
@@ -185,6 +191,7 @@ class ProxyService : Service() {
         ProxyCore.note(settingsSummary(current))
         ProxyCore.note("Network: ${describeNetwork(coreNetwork)}")
         ProxyCore.note(networkDetails(coreNetwork))
+        ProxyWatch.takeStopNote(this)?.let(ProxyCore::note)
         delay(STARTUP_POLL_MS)
         var shown: ProxyStatus? = null
         var listened = false
@@ -202,6 +209,7 @@ class ProxyService : Service() {
                     SettingsStore(this).save(settings)
                     runSession(settings, restart = false)
                 } else {
+                    ProxyWatch.setWanted(this, false) // the error needs the user, not a restart
                     stopSelf()  // bind error or crash; the error stays in ProxyCore.state
                 }
                 return
@@ -528,13 +536,25 @@ class ProxyService : Service() {
 
         /** Starts the proxy, or restarts it with the saved settings when [restart] is true. */
         fun start(context: Context, restart: Boolean = false) {
+            startRequestedAt = android.os.SystemClock.elapsedRealtime()
             val intent = Intent(context, ProxyService::class.java)
                 .setAction(if (restart) ACTION_RESTART else ACTION_START)
             ContextCompat.startForegroundService(context, intent)
         }
 
         fun stop(context: Context) {
+            ProxyWatch.setWanted(context, false)
             context.stopService(Intent(context, ProxyService::class.java))
         }
+
+        /** When [start] was last called (elapsedRealtime); [ProxyWatch.revive] waits for it. */
+        @Volatile
+        var startRequestedAt = Long.MIN_VALUE / 2
+            private set
+
+        /** The service exists in this process (between onCreate and onDestroy). */
+        @Volatile
+        var running = false
+            private set
     }
 }
