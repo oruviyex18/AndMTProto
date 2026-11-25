@@ -61,11 +61,15 @@ object ProxyWatch {
 
     data class Stop(val kind: StopKind, val atMillis: Long, val detail: String)
 
-    /** [ApplicationExitInfo]'s reason codes as a [StopKind]; plain ints, for tests. */
-    fun kindOf(reason: Int): StopKind = when (reason) {
+    /**
+     * [ApplicationExitInfo]'s reason code (and description) as a [StopKind]; plain
+     * values, for tests. Installing an update is "user requested" too, described as
+     * "stop <package> due to installPackageLI" (Android 13, Redmi, 25 Nov 2026).
+     */
+    fun kindOf(reason: Int, description: String? = null): StopKind = when (reason) {
         0, 2, 3, 9, 13, 14 -> StopKind.SYSTEM // unknown, signaled, low memory, excessive use, other, freezer
         4, 5, 6, 7 -> StopKind.CRASH // crash, native crash, ANR, initialization failure
-        10, 11 -> StopKind.USER // user requested, user stopped
+        10, 11 -> if (description?.contains("installPackage") == true) StopKind.UPDATE else StopKind.USER
         8, 15, 16 -> StopKind.UPDATE // permission change, package state change, package updated
         else -> StopKind.OTHER // exit self, dependency died
     }
@@ -129,7 +133,7 @@ object ProxyWatch {
         if (last.timestamp <= p.getLong(KEY_SEEN_EXIT, 0)) return
         p.edit { putLong(KEY_SEEN_EXIT, last.timestamp) }
         if (!wanted(context)) return
-        val kind = kindOf(last.reason)
+        val kind = kindOf(last.reason, last.description)
         val name = reasonName(last.reason)
         // Android's description often just repeats the reason ("crash").
         val description = last.description?.take(120)?.takeIf { it.isNotBlank() && it != name }

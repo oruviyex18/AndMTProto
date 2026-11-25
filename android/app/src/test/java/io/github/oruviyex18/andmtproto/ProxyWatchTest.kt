@@ -30,6 +30,12 @@ class ProxyWatchTest {
         assertEquals(StopKind.CRASH, ProxyWatch.kindOf(crash))
         assertEquals(StopKind.CRASH, ProxyWatch.kindOf(anr))
         assertEquals(StopKind.USER, ProxyWatch.kindOf(userRequested))
+        assertEquals(StopKind.USER, ProxyWatch.kindOf(userRequested, "stop io.github.oruviyex18.andmtproto due to from pid 2231"))
+        // An update's install is "user requested" too, but nothing the user meant as a stop.
+        assertEquals(
+            StopKind.UPDATE,
+            ProxyWatch.kindOf(userRequested, "stop io.github.oruviyex18.andmtproto due to installPackageLI"),
+        )
         assertEquals(StopKind.UPDATE, ProxyWatch.kindOf(packageUpdated))
         assertEquals(StopKind.OTHER, ProxyWatch.kindOf(exitSelf))
         assertEquals(StopKind.OTHER, ProxyWatch.kindOf(99))
