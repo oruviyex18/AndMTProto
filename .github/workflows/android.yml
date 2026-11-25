@@ -127,6 +127,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp android/app/build/outputs/apk/release/app-release.apk "AndMTProto-${GITHUB_REF_NAME}.apk"
+          # Checksums for those who verify by hand (sha256sum -c SHA256SUMS).
+          sha256sum "AndMTProto-${GITHUB_REF_NAME}.apk" > SHA256SUMS
           # Release notes come from the annotated tag's message (git tag -a ... -F notes.md).
-          gh release create "$GITHUB_REF_NAME" "AndMTProto-${GITHUB_REF_NAME}.apk" \
+          gh release create "$GITHUB_REF_NAME" "AndMTProto-${GITHUB_REF_NAME}.apk" SHA256SUMS \
             --title "AndMTProto ${GITHUB_REF_NAME#android-v}" --notes-from-tag
